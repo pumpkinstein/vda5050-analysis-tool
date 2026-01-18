@@ -1,0 +1,37 @@
+[workspace]
+members = [
+    "cli",
+    "hmi",
+    "log-file-parser",
+    "vda5050-data-types",
+]
+resolver = "3"
+
+[workspace.dependencies]
+anyhow = "1.0"
+bstr = "1.13"
+memmap2 = "0.9"
+nom = "8.0"
+rayon = "1.12"
+serde_json = "1.0"
+simd-json = "0.17"
+tikv-jemallocator = "0.7.0"
+tokio = "1.53"
+
+[workspace.dependencies.chrono]
+version = "0.4"
+features = ["serde"]
+
+[workspace.dependencies.polars]
+version = "0.55"
+features = [
+    "lazy",
+    "temporal",
+    "dtype-datetime",
+    "dtype-categorical",
+    "timezones",
+]
+
+[workspace.dependencies.serde]
+version = "1.0"
+features = ["derive"]

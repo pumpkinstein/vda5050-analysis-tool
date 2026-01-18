@@ -1,0 +1,17 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+jemalloc = ["dep:tikv-jemallocator"]
+
+[dependencies]
+vda5050-data-types = { path = "../vda5050-data-types"}
+log-file-parser = { path = "../log-file-parser"}
+
+# Data Analysis
+anyhow = { workspace = true }
+clap = { version = "4.5.54", features = ["derive"] }
+polars = { workspace = true }
+tikv-jemallocator = { workspace = true, optional = true }
