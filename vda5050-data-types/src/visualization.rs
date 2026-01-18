@@ -2,6 +2,7 @@ use crate::common::{AgvPosition, Header, Point, Velocity};
 use serde::{Deserialize, Serialize};
 
 /// A message for visualization purposes.
+/// This message is not safety-relevant and should not be used for control.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Visualization {
@@ -13,7 +14,7 @@ pub struct Visualization {
     /// The velocity of the AGV.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agv_velocity: Option<Velocity>,
-    /// The outline of the AGV.
+    /// The outline of the AGV as a polygon.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agv_outline: Option<Vec<Point>>,
     /// A list of visualization objects.
@@ -28,9 +29,10 @@ pub struct VisualizationObject {
     /// The type of the visualization object.
     #[serde(rename = "type")]
     pub visualization_type: String,
-    /// The ID of the visualization_object.
+    /// The ID of the visualization object.
     pub id: String,
     /// The data of the visualization object.
+    /// The format of the data depends on the visualization_type.
     pub data: serde_json::Value,
 }
 

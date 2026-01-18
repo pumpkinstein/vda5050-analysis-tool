@@ -8,9 +8,11 @@ pub struct State {
     #[serde(flatten)]
     pub header: Header,
     /// The ID of the order that is currently being processed.
+    /// If no order is being processed, this field is empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub order_id: Option<String>,
     /// The update ID of the order that is currently being processed.
+    /// If no order is being processed, this field is empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub order_update_id: Option<u32>,
     /// The ID of the last node that was reached.
@@ -40,11 +42,11 @@ pub struct State {
     /// Indicates if the AGV is requesting a new base.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_base_request: Option<bool>,
-    /// The distance since the last node was reached.
+    /// The distance since the last node was reached in [m].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub distance_since_last_node: Option<f64>,
     /// The operating mode of the AGV.
-    pub operating_mode: String,
+    pub operating_mode: OperatingMode,
     /// A list of errors that occurred on the AGV.
     pub errors: Vec<Error>,
     /// A list of information messages from the AGV.
@@ -53,6 +55,20 @@ pub struct State {
     /// The state of the AGV's battery.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub battery_state: Option<BatteryState>,
+}
+
+/// The operating mode of the AGV.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum OperatingMode {
+    /// The AGV is operating in automatic mode.
+    #[serde(rename = "AUTOMATIC")]
+    Automatic,
+    /// The AGV is operating in manual mode.
+    #[serde(rename = "MANUAL")]
+    Manual,
+    /// The AGV is in service mode.
+    #[serde(rename = "SERVICE")]
+    Service,
 }
 
 /// The state of a node.
@@ -108,7 +124,7 @@ pub struct Load {
     /// The position of the load.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub load_position: Option<String>,
-    /// The weight of the load.
+    /// The weight of the load in [kg].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weight: Option<f64>,
     /// The reference to the bounding box of the load.
@@ -129,7 +145,7 @@ pub struct BoundingBoxReference {
     pub y: f64,
     /// The z coordinate of the bounding box reference.
     pub z: f64,
-    /// The orientation of the bounding box reference.
+    /// The orientation of the bounding box reference in [rad].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orientation: Option<f64>,
 }
@@ -144,9 +160,20 @@ pub struct Error {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_description: Option<String>,
     /// The level of the error.
-    pub error_level: String,
+    pub error_level: ErrorLevel,
     /// A list of references to the error.
     pub error_references: Vec<ErrorReference>,
+}
+
+/// The level of the error.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum ErrorLevel {
+    /// The AGV can continue its operation.
+    #[serde(rename = "WARNING")]
+    Warning,
+    /// The AGV cannot continue its operation.
+    #[serde(rename = "FATAL")]
+    Fatal,
 }
 
 /// A reference to an error.
@@ -176,19 +203,18 @@ pub struct Info {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BatteryState {
-    /// The charge of the battery in percent.
+    /// The charge of the battery in percent. Range: [0.0 ... 100.0].
     pub battery_charge: f64,
-    /// The voltage of the battery.
+    /// The voltage of the battery in [V].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub battery_voltage: Option<f64>,
-    /// The current of the battery.
+    /// The current of the battery in [A].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub battery_current: Option<f64>,
     /// Indicates if the battery is charging.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub charging: Option<bool>,
-    /// The remaining range of the AGV with the current battery charge.
+    /// The remaining range of the AGV with the current battery charge in [m].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reach: Option<f64>,
 }
-

@@ -2,39 +2,51 @@ use crate::common::{Action, Header, NodePosition, Trajectory};
 use serde::{Deserialize, Serialize};
 
 /// An order to be processed by the AGV.
+///
+/// The order is a list of nodes and edges that the AGV has to traverse.
+/// The AGV is expected to traverse the nodes and edges in the order of their sequenceId.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Order {
     #[serde(flatten)]
     pub header: Header,
     /// Unique identifier for the order.
+    /// The orderId is used to identify the order in the system.
+    /// It is recommended to use a UUID.
     pub order_id: String,
     /// Unique identifier for the order update.
+    /// The orderUpdateId is used to identify the update of an order.
+    /// It is a continuous number, which is increased for each update of the order.
     pub order_update_id: u32,
     /// List of nodes that make up the order.
+    /// The nodes must be sorted by their sequenceId.
     pub nodes: Vec<Node>,
     /// List of edges that connect the nodes.
+    /// The edges must be sorted by their sequenceId.
     pub edges: Vec<Edge>,
 }
 
-/// A node in the order.
+/// A node in the order graph.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     /// Unique identifier for the node.
     pub node_id: String,
     /// Sequence number of the node.
+    /// The sequenceId is used to order the nodes in the order.
     pub sequence_id: u32,
     /// Indicates if the node is released.
+    /// If released is false, the AGV has to wait for a release message for this node.
     pub released: bool,
     /// The position of the node.
+    /// If the nodePosition is not defined, the AGV is allowed to choose the position.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_position: Option<NodePosition>,
     /// List of actions to be performed at the node.
     pub actions: Vec<Action>,
 }
 
-/// An edge that connects two nodes.
+/// An edge that connects two nodes in the order graph.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Edge {
@@ -43,6 +55,7 @@ pub struct Edge {
     /// Sequence number of the edge.
     pub sequence_id: u32,
     /// Indicates if the edge is released.
+    /// If released is false, the AGV has to wait for a release message for this edge.
     pub released: bool,
     /// The start node of the edge.
     pub start_node_id: String,
@@ -53,23 +66,22 @@ pub struct Edge {
     /// The trajectory to be followed on the edge.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trajectory: Option<Trajectory>,
-    /// The length of the edge.
+    /// The length of the edge in [m].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub length: Option<f64>,
-    /// The maximum speed on the edge.
+    /// The maximum speed on the edge in [m/s].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_speed: Option<f64>,
-    /// The maximum height on the edge.
+    /// The maximum height on the edge in [m].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_height: Option<f64>,
-    /// The minimum height on the edge.
+    /// The minimum height on the edge in [m].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_height: Option<f64>,
-    /// The orientation of the AGV on the edge.
+    /// The orientation of the AGV on the edge in [rad].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orientation: Option<f64>,
     /// The direction of the AGV on the edge.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direction: Option<String>,
 }
-
