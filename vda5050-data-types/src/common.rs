@@ -10,6 +10,7 @@ pub struct Header {
     pub header_id: u32,
     /// Timestamp in ISO 8601 format. YYYY-MM-DDTHH:mm:ss.ssZ
     /// The timestamp should be in UTC.
+    /// For now keep this as String even though there are much more efficient representations.
     pub timestamp: String,
     /// VDA 5050 version, e.g. "2.0.0".
     pub version: String,
