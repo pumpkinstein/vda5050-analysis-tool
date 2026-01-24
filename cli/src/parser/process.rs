@@ -9,7 +9,9 @@ use nom::{
     combinator::map_res,
 };
 use std::str;
-use vda5050_data_types::{connection::Connection, state::State, visualization::Visualization};
+use vda5050_data_types::{
+    connection::Connection, order::Order, state::State, visualization::Visualization,
+};
 
 /// A temporary struct to hold the fields parsed from the MQTT topic.
 struct Topic<'a> {
@@ -133,6 +135,15 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
             record.timestamp_us = parse_timestamp_us(&conn.header.timestamp)?;
             record.version_packed = parse_version(&conn.header.version);
             record.operating_mode = Some(format!("{:?}", conn.connection_state).to_uppercase());
+        }
+        "order" => {
+            let order: Order = serde_json::from_value(json_value)?;
+            record.header_id = order.header.header_id;
+            record.timestamp_us = parse_timestamp_us(&order.header.timestamp)?;
+            record.version_packed = parse_version(&order.header.version);
+
+            // Store order-specific information in operating_mode field
+            record.operating_mode = Some(format!("ORDER:{}", order.order_id));
         }
         _ => {
             return Err(anyhow::anyhow!(
@@ -317,5 +328,28 @@ mod tests {
         let log_entry = br#"uagv/v1/test-mfr/test-sn/visualization {"agvPosition":{"x":1.0,"y":2.0,"theta":0.0,"mapId":"map1","positionInitialized":true}}"#;
         let result = parse_record(log_entry);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_record_order() {
+        let log_entry = br#"uagv/v1/test-mfr/agv-001/order {"headerId":10,"timestamp":"2024-05-20T10:00:00Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"agv-001","orderId":"order-123","orderUpdateId":0,"nodes":[{"nodeId":"node1","sequenceId":0,"released":true,"actions":[]}],"edges":[]}"#;
+        let record = parse_record(log_entry).unwrap();
+        assert_eq!(record.manufacturer, "test-mfr");
+        assert_eq!(record.serial_number, "agv-001");
+        assert_eq!(record.msg_type, "order");
+        assert_eq!(record.header_id, 10);
+        assert_eq!(record.version_packed, 2 << 24);
+        assert_eq!(record.operating_mode, Some("ORDER:order-123".to_string()));
+    }
+
+    #[test]
+    fn test_parse_record_order_with_edges() {
+        let log_entry = br#"uagv/v1/robot-corp/robot-5/order {"headerId":20,"timestamp":"2024-05-20T11:00:00Z","version":"2.1.0","manufacturer":"robot-corp","serialNumber":"robot-5","orderId":"order-456","orderUpdateId":2,"nodes":[{"nodeId":"n1","sequenceId":0,"released":true,"actions":[]},{"nodeId":"n2","sequenceId":2,"released":true,"actions":[]}],"edges":[{"edgeId":"e1","sequenceId":1,"released":true,"startNodeId":"n1","endNodeId":"n2","actions":[]}]}"#;
+        let record = parse_record(log_entry).unwrap();
+        assert_eq!(record.manufacturer, "robot-corp");
+        assert_eq!(record.serial_number, "robot-5");
+        assert_eq!(record.msg_type, "order");
+        assert_eq!(record.header_id, 20);
+        assert_eq!(record.operating_mode, Some("ORDER:order-456".to_string()));
     }
 }
