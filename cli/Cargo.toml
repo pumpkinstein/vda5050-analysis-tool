@@ -1,0 +1,20 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+simd-json = { workspace = true } # Optional: Requires RUSTFLAGS="-C target-feature=+avx2"
+
+# Fast I/O and Byte manipulation
+memmap2 = { workspace = true }
+bstr = { workspace = true }
+nom = { workspace = true }
+
+# Parallelism
+rayon = { workspace = true }
+
+# Data Analysis
+polars = { workspace = true }

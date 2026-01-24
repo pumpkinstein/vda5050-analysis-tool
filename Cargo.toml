@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["hmi", "log-file-parser", "vda5050-data-types"]
+members = ["cli","hmi", "log-file-parser", "vda5050-data-types"]
 
 [workspace.dependencies]
 # High-performance JSON
