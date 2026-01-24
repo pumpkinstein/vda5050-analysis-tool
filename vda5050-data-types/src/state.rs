@@ -22,8 +22,10 @@ pub struct State {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_node_sequence_id: Option<u32>,
     /// The state of the nodes in the current order.
+    #[serde(default)]
     pub node_states: Vec<NodeState>,
     /// The state of the edges in the current order.
+    #[serde(default)]
     pub edge_states: Vec<EdgeState>,
     /// The position of the AGV.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -162,6 +164,7 @@ pub struct Error {
     /// The level of the error.
     pub error_level: ErrorLevel,
     /// A list of references to the error.
+    #[serde(default)]
     pub error_references: Vec<ErrorReference>,
 }
 
