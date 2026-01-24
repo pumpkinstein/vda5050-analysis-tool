@@ -17,4 +17,4 @@ nom = "8.0"
 rayon = "1.11"
 
 # Data Analysis
-polars = { version = "0.52", features = ["lazy", "temporal", "dtype-datetime"] }
+polars = { version = "0.52", features = ["lazy", "temporal", "dtype-datetime", "timezones"] }
