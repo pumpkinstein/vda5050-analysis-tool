@@ -1,4 +1,4 @@
-use crate::common::{AgvPosition, Velocity};
+use crate::common::{AgvPosition, Velocity, deserialize_timestamp, serialize_timestamp};
 use serde::{Deserialize, Serialize};
 
 /// A message for visualization purposes.
@@ -12,9 +12,14 @@ pub struct Visualization {
     /// Header ID of the message. The headerId is defined per topic and incremented by 1 with each sent (but not necessarily received) message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub header_id: Option<u32>,
-    /// Timestamp in ISO8601 format (YYYY-MM-DDTHH:mm:ss.ffZ).
+    /// Timestamp in microseconds since Unix epoch (parsed from ISO 8601 format).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<String>,
+    #[serde(default)]
+    #[serde(
+        deserialize_with = "deserialize_optional_timestamp",
+        serialize_with = "serialize_optional_timestamp"
+    )]
+    pub timestamp: Option<i64>,
     /// Version of the protocol [Major].[Minor].[Patch]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
@@ -30,6 +35,39 @@ pub struct Visualization {
     /// The AGV's velocity in vehicle coordinates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub velocity: Option<Velocity>,
+}
+
+/// Custom deserializer for optional timestamps
+fn deserialize_optional_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    opt.map(|s| {
+        chrono::DateTime::parse_from_rfc3339(&s)
+            .map(|dt| dt.timestamp_micros())
+            .map_err(serde::de::Error::custom)
+    })
+    .transpose()
+}
+
+/// Custom serializer for optional timestamps
+fn serialize_optional_timestamp<S>(
+    timestamp: &Option<i64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match timestamp {
+        Some(ts) => {
+            use chrono::{DateTime, Utc};
+            let dt = DateTime::<Utc>::from_timestamp_micros(*ts)
+                .ok_or_else(|| serde::ser::Error::custom("Invalid timestamp"))?;
+            serializer.serialize_some(&dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        }
+        None => serializer.serialize_none(),
+    }
 }
 
 #[cfg(test)]

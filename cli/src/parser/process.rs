@@ -2,7 +2,6 @@
 
 use crate::parser::models::ParsedRecord;
 use anyhow::Result;
-use chrono::DateTime;
 use nom::{
     IResult, Parser,
     bytes::complete::{tag, take_while},
@@ -53,11 +52,6 @@ fn parse_version(version: &str) -> u32 {
     (major as u32) << 24 | (minor as u32) << 16 | (patch as u32)
 }
 
-/// Parses an ISO 8601 timestamp string into a Unix timestamp (microseconds since epoch).
-fn parse_timestamp_us(timestamp: &str) -> Result<i64> {
-    Ok(DateTime::parse_from_rfc3339(timestamp)?.timestamp_micros())
-}
-
 /// Parses a complete log entry slice (`&[u8]`) into a `ParsedRecord`.
 pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
     // The VdaIterator gives us slices that start with `uagv/v1/`. We strip it before topic parsing.
@@ -83,7 +77,7 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
         "state" => {
             let state: State = simd_json::serde::from_slice(&mut json_bytes)?;
             record.header_id = state.header.header_id;
-            record.timestamp_us = parse_timestamp_us(&state.header.timestamp)?;
+            record.timestamp_us = state.header.timestamp;
             record.version_packed = parse_version(&state.header.version);
             record.operating_mode = Some(format!("{:?}", state.operating_mode).to_uppercase());
             record.battery_charge = Some(state.battery_state.battery_charge);
@@ -106,7 +100,7 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
             })?;
 
             record.header_id = header_id;
-            record.timestamp_us = parse_timestamp_us(&timestamp)?;
+            record.timestamp_us = timestamp;
             record.version_packed = parse_version(&version);
 
             // Override manufacturer and serial_number from the message payload if available
@@ -127,14 +121,14 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
         "connection" => {
             let conn: Connection = simd_json::serde::from_slice(&mut json_bytes)?;
             record.header_id = conn.header.header_id;
-            record.timestamp_us = parse_timestamp_us(&conn.header.timestamp)?;
+            record.timestamp_us = conn.header.timestamp;
             record.version_packed = parse_version(&conn.header.version);
             record.operating_mode = Some(format!("{:?}", conn.connection_state).to_uppercase());
         }
         "order" => {
             let order: Order = simd_json::serde::from_slice(&mut json_bytes)?;
             record.header_id = order.header.header_id;
-            record.timestamp_us = parse_timestamp_us(&order.header.timestamp)?;
+            record.timestamp_us = order.header.timestamp;
             record.version_packed = parse_version(&order.header.version);
 
             // Store order-specific information in operating_mode field
@@ -143,7 +137,7 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
         "instantActions" => {
             let instant_actions: InstantActions = simd_json::serde::from_slice(&mut json_bytes)?;
             record.header_id = instant_actions.header.header_id;
-            record.timestamp_us = parse_timestamp_us(&instant_actions.header.timestamp)?;
+            record.timestamp_us = instant_actions.header.timestamp;
             record.version_packed = parse_version(&instant_actions.header.version);
 
             // Store number of instant actions in operating_mode field
@@ -170,14 +164,6 @@ mod tests {
         assert_eq!(parse_version("1.0.0"), (1 << 24));
         assert_eq!(parse_version("0.0.0"), 0);
         assert_eq!(parse_version("invalid"), 0);
-    }
-
-    #[test]
-    fn test_parse_timestamp() {
-        let ts = "2024-05-20T14:35:12.123Z";
-        let us = parse_timestamp_us(ts).unwrap();
-        // Python: int(datetime.fromisoformat('2024-05-20T14:35:12.123Z').timestamp() * 1_000_000)
-        assert_eq!(us, 1716215712123000);
     }
 
     #[test]
