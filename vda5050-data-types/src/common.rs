@@ -26,16 +26,31 @@ pub struct Header {
 pub struct Action {
     /// Unique identifier for the action.
     /// The actionId is to be used in the state message to report the progress of an action.
+    /// Suggestion: Use UUIDs.
     pub action_id: String,
     /// Type of the action.
-    /// The actionType must be one of the actions from the factsheet of the AGV.
+    /// Name of action as described in the first column of "Actions and Parameters".
+    /// Identifies the function of the action.
     pub action_type: String,
-    /// Defines if the action is blocking.
-    pub blocking_type: BlockingType,
-    /// Optional parameters for the action.
-    /// The actionParameters must be a valid JSON object, as defined in the factsheet for the action.
+    /// Additional information on the action.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub action_parameters: Option<serde_json::Value>,
+    pub action_description: Option<String>,
+    /// Regulates if the action is allowed to be executed during movement and/or parallel to other actions.
+    pub blocking_type: BlockingType,
+    /// Array of actionParameter-objects for the indicated action e.g. deviceId, loadId, external Triggers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_parameters: Option<Vec<ActionParameter>>,
+}
+
+/// A parameter for an action.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionParameter {
+    /// The key of the action parameter.
+    pub key: String,
+    /// The value of the action parameter.
+    /// Can be a string, number, boolean, array, or object.
+    pub value: serde_json::Value,
 }
 
 /// Defines if the action is blocking.

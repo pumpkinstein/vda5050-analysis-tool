@@ -10,7 +10,8 @@ use nom::{
 };
 use std::str;
 use vda5050_data_types::{
-    connection::Connection, order::Order, state::State, visualization::Visualization,
+    connection::Connection, instant_actions::InstantActions, order::Order, state::State,
+    visualization::Visualization,
 };
 
 /// A temporary struct to hold the fields parsed from the MQTT topic.
@@ -144,6 +145,16 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
 
             // Store order-specific information in operating_mode field
             record.operating_mode = Some(format!("ORDER:{}", order.order_id));
+        }
+        "instantActions" => {
+            let instant_actions: InstantActions = serde_json::from_value(json_value)?;
+            record.header_id = instant_actions.header.header_id;
+            record.timestamp_us = parse_timestamp_us(&instant_actions.header.timestamp)?;
+            record.version_packed = parse_version(&instant_actions.header.version);
+
+            // Store number of instant actions in operating_mode field
+            record.operating_mode =
+                Some(format!("INSTANT_ACTIONS:{}", instant_actions.actions.len()));
         }
         _ => {
             return Err(anyhow::anyhow!(
@@ -351,5 +362,28 @@ mod tests {
         assert_eq!(record.msg_type, "order");
         assert_eq!(record.header_id, 20);
         assert_eq!(record.operating_mode, Some("ORDER:order-456".to_string()));
+    }
+
+    #[test]
+    fn test_parse_record_instant_actions_empty() {
+        let log_entry = br#"uagv/v1/test-mfr/agv-001/instantActions {"headerId":30,"timestamp":"2024-05-20T12:00:00Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"agv-001","actions":[]}"#;
+        let record = parse_record(log_entry).unwrap();
+        assert_eq!(record.manufacturer, "test-mfr");
+        assert_eq!(record.serial_number, "agv-001");
+        assert_eq!(record.msg_type, "instantActions");
+        assert_eq!(record.header_id, 30);
+        assert_eq!(record.version_packed, 2 << 24);
+        assert_eq!(record.operating_mode, Some("INSTANT_ACTIONS:0".to_string()));
+    }
+
+    #[test]
+    fn test_parse_record_instant_actions_with_actions() {
+        let log_entry = br#"uagv/v1/robot-corp/robot-7/instantActions {"headerId":40,"timestamp":"2024-05-20T13:00:00Z","version":"2.1.0","manufacturer":"robot-corp","serialNumber":"robot-7","actions":[{"actionId":"pause-1","actionType":"startPause","blockingType":"HARD"},{"actionId":"pause-2","actionType":"stopPause","blockingType":"HARD"}]}"#;
+        let record = parse_record(log_entry).unwrap();
+        assert_eq!(record.manufacturer, "robot-corp");
+        assert_eq!(record.serial_number, "robot-7");
+        assert_eq!(record.msg_type, "instantActions");
+        assert_eq!(record.header_id, 40);
+        assert_eq!(record.operating_mode, Some("INSTANT_ACTIONS:2".to_string()));
     }
 }
