@@ -22,5 +22,7 @@ target
 
 
 # Added by cargo
-
 /target
+
+# Example MQTT log files too big to commit to github
+/log-file-parser/test-data/*
