@@ -4,10 +4,7 @@ use crate::parser::models::ParsedRecord;
 use anyhow::Result;
 use chrono::DateTime;
 use nom::{
-    IResult,
-    bytes::complete::{tag, take_while},
-    combinator::map_res,
-    sequence::tuple,
+    IResult, Parser, bytes::complete::{tag, take_while}, combinator::map_res
 };
 use std::str;
 use vda5050_data_types::{connection::Connection, state::State, visualization::Visualization};
@@ -23,14 +20,14 @@ struct Topic<'a> {
 fn parse_topic<'a>(input: &'a [u8]) -> IResult<&'a [u8], Topic<'a>> {
     let not_separator = |c: u8| c != b'/' && c != b' ';
 
-    let (rest, (manufacturer, _, serial_number, _, msg_type, _)) = tuple((
+    let (rest, (manufacturer, _, serial_number, _, msg_type, _)) = (
         map_res(take_while(not_separator), str::from_utf8),
         tag(&b"/"[..]),
         map_res(take_while(not_separator), str::from_utf8),
         tag(&b"/"[..]),
         map_res(take_while(not_separator), str::from_utf8),
         tag(&b" "[..]), // The space separating the topic from the JSON payload.
-    ))(input)?;
+    ).parse(input)?;
 
     let topic = Topic {
         manufacturer,
