@@ -92,8 +92,6 @@ pub struct NodePosition {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Trajectory {
-    /// Header ID of the trajectory.
-    pub header_id: u32,
     /// Degree of the spline.
     pub degree: u8,
     /// Knot vector of the spline.

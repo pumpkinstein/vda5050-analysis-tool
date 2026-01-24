@@ -330,4 +330,43 @@ mod tests {
             Some(CorridorRefPoint::KinematicCenter)
         ));
     }
+
+    #[test]
+    fn test_deserialize_order_fields_at_end() {
+        // Test that Order can parse JSON with header fields at the end (common in real logs)
+        let json = r#"{
+            "nodes": [
+                {
+                    "nodeId": "10854",
+                    "sequenceId": 0,
+                    "released": true,
+                    "nodePosition": {
+                        "x": 152.595,
+                        "y": 163.65,
+                        "theta": 0,
+                        "allowedDeviationXY": null,
+                        "mapId": "1",
+                        "mapDescription": null
+                    },
+                    "actions": []
+                }
+            ],
+            "edges": [],
+            "orderId": "4e277916-a1a3-411a-9d6b-685b3e973bd7",
+            "orderUpdateId": 0,
+            "headerId": 0,
+            "version": "1.1.0",
+            "timestamp": "2025-04-12T06:52:03.028Z",
+            "manufacturer": "agv-dummy-manufacturer",
+            "serialNumber": "14"
+        }"#;
+
+        let order: Order = serde_json::from_str(json).unwrap();
+        assert_eq!(order.header.header_id, 0);
+        assert_eq!(order.header.manufacturer, "agv-dummy-manufacturer");
+        assert_eq!(order.header.serial_number, "14");
+        assert_eq!(order.order_id, "4e277916-a1a3-411a-9d6b-685b3e973bd7");
+        assert_eq!(order.nodes.len(), 1);
+        assert_eq!(order.nodes[0].node_id, "10854");
+    }
 }
