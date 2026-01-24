@@ -35,50 +35,50 @@ mod tests {
     #[test]
     fn test_deserialize_connection_online() {
         let json = r#"{
-            "headerId": 5,
-            "timestamp": "2025-04-12T06:19:11.012598Z",
-            "version": "1.1.0",
-            "manufacturer": "Jungheinrich",
-            "serialNumber": "2",
+            "headerId": 1,
+            "timestamp": "2026-01-24T17:19:11.012598Z",
+            "version": "2.0.0",
+            "manufacturer": "Acme",
+            "serialNumber": "23",
             "connectionState": "ONLINE"
         }"#;
 
         let connection: Connection = serde_json::from_str(json).unwrap();
-        assert_eq!(connection.header.header_id, 5);
-        assert_eq!(connection.header.manufacturer, "Jungheinrich");
-        assert_eq!(connection.header.serial_number, "2");
+        assert_eq!(connection.header.header_id, 1);
+        assert_eq!(connection.header.manufacturer, "Acme");
+        assert_eq!(connection.header.serial_number, "23");
         assert!(matches!(connection.connection_state, ConnectionState::Online));
     }
 
     #[test]
     fn test_deserialize_connection_broken() {
         let json = r#"{
-            "headerId": 4,
-            "timestamp": "2025-04-12T06:19:07.242319Z",
-            "version": "1.1.0",
-            "manufacturer": "Jungheinrich",
-            "serialNumber": "2",
+            "headerId": 2,
+            "timestamp": "2026-01-24T06:19:07.242319Z",
+            "version": "2.0.0",
+            "manufacturer": "Acme",
+            "serialNumber": "42",
             "connectionState": "CONNECTIONBROKEN"
         }"#;
 
         let connection: Connection = serde_json::from_str(json).unwrap();
-        assert_eq!(connection.header.header_id, 4);
+        assert_eq!(connection.header.header_id, 2);
         assert!(matches!(connection.connection_state, ConnectionState::ConnectionBroken));
     }
 
     #[test]
     fn test_deserialize_connection_offline() {
         let json = r#"{
-            "headerId": 1,
-            "timestamp": "2025-04-12T06:19:07.242319Z",
-            "version": "1.1.0",
-            "manufacturer": "Test",
-            "serialNumber": "1",
+            "headerId": 3,
+            "timestamp": "2026-01-24T06:19:07.242319Z",
+            "version": "2.0.0",
+            "manufacturer": "Acme",
+            "serialNumber": "69",
             "connectionState": "OFFLINE"
         }"#;
 
         let connection: Connection = serde_json::from_str(json).unwrap();
-        assert_eq!(connection.header.header_id, 1);
+        assert_eq!(connection.header.header_id, 3);
         assert!(matches!(connection.connection_state, ConnectionState::Offline));
     }
 }
