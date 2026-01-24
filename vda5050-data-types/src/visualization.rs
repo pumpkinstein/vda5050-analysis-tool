@@ -35,4 +35,3 @@ pub struct VisualizationObject {
     /// The format of the data depends on the visualization_type.
     pub data: serde_json::Value,
 }
-

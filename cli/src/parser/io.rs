@@ -64,7 +64,8 @@ mod tests {
 
     #[test]
     fn test_vda_iterator_simple() {
-        let log_data = b"some preamble...uagv/v1/first_msg...some trailing data...uagv/v1/second_msg...end";
+        let log_data =
+            b"some preamble...uagv/v1/first_msg...some trailing data...uagv/v1/second_msg...end";
         let mut iterator = VdaIterator::new(log_data);
 
         assert_eq!(

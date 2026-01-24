@@ -4,10 +4,10 @@ use crate::parser::models::ParsedRecord;
 use anyhow::Result;
 use chrono::DateTime;
 use nom::{
+    IResult,
     bytes::complete::{tag, take_while},
     combinator::map_res,
     sequence::tuple,
-    IResult,
 };
 use std::str;
 use vda5050_data_types::{connection::Connection, state::State, visualization::Visualization};
@@ -67,7 +67,8 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
 
     // Use an iterator to deserialize only the first JSON object from the stream.
     // This robustly handles trailing characters (e.g., other log lines) in the buffer.
-    let mut stream = serde_json::Deserializer::from_slice(json_payload).into_iter::<serde_json::Value>();
+    let mut stream =
+        serde_json::Deserializer::from_slice(json_payload).into_iter::<serde_json::Value>();
     let json_value = match stream.next() {
         Some(Ok(v)) => v,
         Some(Err(e)) => return Err(e.into()),
@@ -110,7 +111,12 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
             record.version_packed = parse_version(&conn.header.version);
             record.operating_mode = Some(format!("{:?}", conn.connection_state).to_uppercase());
         }
-        _ => return Err(anyhow::anyhow!("Unsupported message type: {}", topic.msg_type)),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported message type: {}",
+                topic.msg_type
+            ));
+        }
     }
 
     Ok(record)
@@ -197,12 +203,30 @@ mod tests {
         use vda5050_data_types::state::OperatingMode;
 
         // Verify Debug format produces expected strings
-        assert_eq!(format!("{:?}", ConnectionState::Online).to_uppercase(), "ONLINE");
-        assert_eq!(format!("{:?}", ConnectionState::Offline).to_uppercase(), "OFFLINE");
-        assert_eq!(format!("{:?}", ConnectionState::ConnectionBroken).to_uppercase(), "CONNECTIONBROKEN");
+        assert_eq!(
+            format!("{:?}", ConnectionState::Online).to_uppercase(),
+            "ONLINE"
+        );
+        assert_eq!(
+            format!("{:?}", ConnectionState::Offline).to_uppercase(),
+            "OFFLINE"
+        );
+        assert_eq!(
+            format!("{:?}", ConnectionState::ConnectionBroken).to_uppercase(),
+            "CONNECTIONBROKEN"
+        );
 
-        assert_eq!(format!("{:?}", OperatingMode::Automatic).to_uppercase(), "AUTOMATIC");
-        assert_eq!(format!("{:?}", OperatingMode::Manual).to_uppercase(), "MANUAL");
-        assert_eq!(format!("{:?}", OperatingMode::Service).to_uppercase(), "SERVICE");
+        assert_eq!(
+            format!("{:?}", OperatingMode::Automatic).to_uppercase(),
+            "AUTOMATIC"
+        );
+        assert_eq!(
+            format!("{:?}", OperatingMode::Manual).to_uppercase(),
+            "MANUAL"
+        );
+        assert_eq!(
+            format!("{:?}", OperatingMode::Service).to_uppercase(),
+            "SERVICE"
+        );
     }
 }

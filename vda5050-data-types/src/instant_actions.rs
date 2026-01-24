@@ -13,4 +13,3 @@ pub struct InstantActions {
     /// The list of instant actions.
     pub instant_actions: Vec<Action>,
 }
-

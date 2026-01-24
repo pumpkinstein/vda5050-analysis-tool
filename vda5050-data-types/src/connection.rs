@@ -47,7 +47,10 @@ mod tests {
         assert_eq!(connection.header.header_id, 1);
         assert_eq!(connection.header.manufacturer, "Acme");
         assert_eq!(connection.header.serial_number, "23");
-        assert!(matches!(connection.connection_state, ConnectionState::Online));
+        assert!(matches!(
+            connection.connection_state,
+            ConnectionState::Online
+        ));
     }
 
     #[test]
@@ -63,7 +66,10 @@ mod tests {
 
         let connection: Connection = serde_json::from_str(json).unwrap();
         assert_eq!(connection.header.header_id, 2);
-        assert!(matches!(connection.connection_state, ConnectionState::ConnectionBroken));
+        assert!(matches!(
+            connection.connection_state,
+            ConnectionState::ConnectionBroken
+        ));
     }
 
     #[test]
@@ -79,6 +85,9 @@ mod tests {
 
         let connection: Connection = serde_json::from_str(json).unwrap();
         assert_eq!(connection.header.header_id, 3);
-        assert!(matches!(connection.connection_state, ConnectionState::Offline));
+        assert!(matches!(
+            connection.connection_state,
+            ConnectionState::Offline
+        ));
     }
 }
