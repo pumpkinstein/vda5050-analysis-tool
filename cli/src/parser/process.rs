@@ -92,7 +92,7 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
             record.timestamp_us = parse_timestamp_us(&state.header.timestamp)?;
             record.version_packed = parse_version(&state.header.version);
             record.operating_mode = Some(format!("{:?}", state.operating_mode).to_uppercase());
-            record.battery_charge = state.battery_state.map(|bs| bs.battery_charge);
+            record.battery_charge = Some(state.battery_state.battery_charge);
             record.has_errors = Some(!state.errors.is_empty());
         }
         "visualization" => {
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_parse_record_state() {
-        let log_entry = br#"uagv/v1/test-mfr/test-sn/state {"headerId":1,"timestamp":"2024-05-20T14:35:12.123Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"test-sn","operatingMode":"AUTOMATIC","driving":false,"errors":[]}"#;
+        let log_entry = br#"uagv/v1/test-mfr/test-sn/state {"headerId":1,"timestamp":"2024-05-20T14:35:12.123Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"test-sn","orderId":"","orderUpdateId":0,"lastNodeId":"","lastNodeSequenceId":0,"driving":false,"operatingMode":"AUTOMATIC","nodeStates":[],"edgeStates":[],"actionStates":[],"batteryState":{"batteryCharge":88.5,"charging":false},"errors":[],"safetyState":{"eStop":"NONE","fieldViolation":false}}"#;
         let record = parse_record(log_entry).unwrap();
         assert_eq!(record.manufacturer, "test-mfr");
         assert_eq!(record.serial_number, "test-sn");
@@ -197,6 +197,7 @@ mod tests {
         assert_eq!(record.version_packed, 2 << 24);
         assert_eq!(record.operating_mode, Some("AUTOMATIC".to_string()));
         assert_eq!(record.has_errors, Some(false));
+        assert_eq!(record.battery_charge, Some(88.5));
         assert!(record.x.is_none());
     }
 
