@@ -59,6 +59,14 @@ struct LenientVisualization {
     agv_position: Option<LenientAgvPosition>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LenientConnection {
+    #[serde(flatten)]
+    header: LenientHeader,
+    connection_state: String,
+}
+
 /// A temporary struct to hold the fields parsed from the MQTT topic.
 struct Topic<'a> {
     manufacturer: &'a str,
@@ -150,6 +158,13 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
                 record.map_id = Some(pos.map_id);
             }
         }
+        "connection" => {
+            let conn: LenientConnection = serde_json::from_value(json_value)?;
+            record.header_id = conn.header.header_id;
+            record.timestamp_us = parse_timestamp_us(&conn.header.timestamp)?;
+            record.version_packed = parse_version(&conn.header.version);
+            record.operating_mode = Some(conn.connection_state);
+        }
         _ => return Err(anyhow::anyhow!("Unsupported message type: {}", topic.msg_type)),
     }
 
@@ -184,7 +199,7 @@ mod tests {
         assert_eq!(record.msg_type, "state");
         assert_eq!(record.header_id, 1);
         assert_eq!(record.version_packed, 2 << 24);
-        assert_eq!(record.operating_mode, Some("Automatic".to_string()));
+        assert_eq!(record.operating_mode, Some("AUTOMATIC".to_string()));
         assert_eq!(record.has_errors, Some(false));
         assert!(record.x.is_none());
     }
@@ -200,5 +215,20 @@ mod tests {
         assert_eq!(record.y, Some(2.5));
         assert_eq!(record.map_id, Some("map1".to_string()));
         assert!(record.operating_mode.is_none());
+    }
+
+    #[test]
+    fn test_parse_record_connection() {
+        let log_entry = br#"uagv/v1/Jungheinrich/2/connection {"headerId":5,"timestamp":"2025-04-12T06:19:11.012598Z","version":"1.1.0","manufacturer":"Jungheinrich","serialNumber":"2","connectionState":"ONLINE"}"#;
+        let record = parse_record(log_entry).unwrap();
+        assert_eq!(record.manufacturer, "Jungheinrich");
+        assert_eq!(record.serial_number, "2");
+        assert_eq!(record.msg_type, "connection");
+        assert_eq!(record.header_id, 5);
+        assert_eq!(record.version_packed, (1 << 24) | (1 << 16));
+        assert_eq!(record.operating_mode, Some("ONLINE".to_string()));
+        assert!(record.x.is_none());
+        assert!(record.battery_charge.is_none());
+        assert!(record.has_errors.is_none());
     }
 }
