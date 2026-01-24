@@ -68,16 +68,6 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
     let (json_payload, topic) =
         parse_topic(input).map_err(|e| anyhow::anyhow!("Topic parsing failed: {}", e))?;
 
-    // Use an iterator to deserialize only the first JSON object from the stream.
-    // This robustly handles trailing characters (e.g., other log lines) in the buffer.
-    let mut stream =
-        serde_json::Deserializer::from_slice(json_payload).into_iter::<serde_json::Value>();
-    let json_value = match stream.next() {
-        Some(Ok(v)) => v,
-        Some(Err(e)) => return Err(e.into()),
-        None => return Err(anyhow::anyhow!("No JSON object found in payload")),
-    };
-
     let mut record = ParsedRecord {
         manufacturer: topic.manufacturer.to_string(),
         serial_number: topic.serial_number.to_string(),
@@ -85,9 +75,13 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
         ..Default::default()
     };
 
+    // Use simd-json for faster parsing. It requires a mutable slice, so we make a copy.
+    // Parse directly to typed structs for better performance.
+    let mut json_bytes = json_payload.to_vec();
+
     match topic.msg_type {
         "state" => {
-            let state: State = serde_json::from_value(json_value)?;
+            let state: State = simd_json::serde::from_slice(&mut json_bytes)?;
             record.header_id = state.header.header_id;
             record.timestamp_us = parse_timestamp_us(&state.header.timestamp)?;
             record.version_packed = parse_version(&state.header.version);
@@ -96,7 +90,7 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
             record.has_errors = Some(!state.errors.is_empty());
         }
         "visualization" => {
-            let viz: Visualization = serde_json::from_value(json_value)?;
+            let viz: Visualization = simd_json::serde::from_slice(&mut json_bytes)?;
 
             // Per VDA5050 schema, all fields in visualization are optional.
             // However, for data analysis purposes, we need at least header_id and timestamp.
@@ -131,14 +125,14 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
             }
         }
         "connection" => {
-            let conn: Connection = serde_json::from_value(json_value)?;
+            let conn: Connection = simd_json::serde::from_slice(&mut json_bytes)?;
             record.header_id = conn.header.header_id;
             record.timestamp_us = parse_timestamp_us(&conn.header.timestamp)?;
             record.version_packed = parse_version(&conn.header.version);
             record.operating_mode = Some(format!("{:?}", conn.connection_state).to_uppercase());
         }
         "order" => {
-            let order: Order = serde_json::from_value(json_value)?;
+            let order: Order = simd_json::serde::from_slice(&mut json_bytes)?;
             record.header_id = order.header.header_id;
             record.timestamp_us = parse_timestamp_us(&order.header.timestamp)?;
             record.version_packed = parse_version(&order.header.version);
@@ -147,7 +141,7 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
             record.operating_mode = Some(format!("ORDER:{}", order.order_id));
         }
         "instantActions" => {
-            let instant_actions: InstantActions = serde_json::from_value(json_value)?;
+            let instant_actions: InstantActions = simd_json::serde::from_slice(&mut json_bytes)?;
             record.header_id = instant_actions.header.header_id;
             record.timestamp_us = parse_timestamp_us(&instant_actions.header.timestamp)?;
             record.version_packed = parse_version(&instant_actions.header.version);
