@@ -4,7 +4,9 @@ use crate::parser::models::ParsedRecord;
 use anyhow::Result;
 use chrono::DateTime;
 use nom::{
-    IResult, Parser, bytes::complete::{tag, take_while}, combinator::map_res
+    IResult, Parser,
+    bytes::complete::{tag, take_while},
+    combinator::map_res,
 };
 use std::str;
 use vda5050_data_types::{connection::Connection, state::State, visualization::Visualization};
@@ -27,7 +29,8 @@ fn parse_topic<'a>(input: &'a [u8]) -> IResult<&'a [u8], Topic<'a>> {
         tag(&b"/"[..]),
         map_res(take_while(not_separator), str::from_utf8),
         tag(&b" "[..]), // The space separating the topic from the JSON payload.
-    ).parse(input)?;
+    )
+        .parse(input)?;
 
     let topic = Topic {
         manufacturer,
@@ -91,13 +94,36 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
         }
         "visualization" => {
             let viz: Visualization = serde_json::from_value(json_value)?;
-            record.header_id = viz.header.header_id;
-            record.timestamp_us = parse_timestamp_us(&viz.header.timestamp)?;
-            record.version_packed = parse_version(&viz.header.version);
+
+            // Per VDA5050 schema, all fields in visualization are optional.
+            // However, for data analysis purposes, we need at least header_id and timestamp.
+            // Return an error to skip visualization messages without minimum required metadata.
+            let header_id = viz.header_id.ok_or_else(|| {
+                anyhow::anyhow!("Visualization missing headerId - skipping incomplete record")
+            })?;
+            let timestamp = viz.timestamp.ok_or_else(|| {
+                anyhow::anyhow!("Visualization missing timestamp - skipping incomplete record")
+            })?;
+            let version = viz.version.ok_or_else(|| {
+                anyhow::anyhow!("Visualization missing version - skipping incomplete record")
+            })?;
+
+            record.header_id = header_id;
+            record.timestamp_us = parse_timestamp_us(&timestamp)?;
+            record.version_packed = parse_version(&version);
+
+            // Override manufacturer and serial_number from the message payload if available
+            if let Some(mfr) = viz.manufacturer {
+                record.manufacturer = mfr;
+            }
+            if let Some(sn) = viz.serial_number {
+                record.serial_number = sn;
+            }
+
             if let Some(pos) = viz.agv_position {
                 record.x = Some(pos.x);
                 record.y = Some(pos.y);
-                record.theta = pos.theta;
+                record.theta = Some(pos.theta);
                 record.map_id = Some(pos.map_id);
             }
         }
@@ -154,13 +180,14 @@ mod tests {
 
     #[test]
     fn test_parse_record_visualization() {
-        let log_entry = br#"uagv/v1/test-mfr/test-sn/visualization {"headerId":2,"timestamp":"2024-05-20T15:00:00Z","version":"2.1.0","manufacturer":"test-mfr","serialNumber":"test-sn","agvPosition":{"x":1.0,"y":2.5,"mapId":"map1"}}"#;
+        let log_entry = br#"uagv/v1/test-mfr/test-sn/visualization {"headerId":2,"timestamp":"2024-05-20T15:00:00Z","version":"2.1.0","manufacturer":"test-mfr","serialNumber":"test-sn","agvPosition":{"x":1.0,"y":2.5,"theta":1.57,"mapId":"map1","positionInitialized":true}}"#;
         let record = parse_record(log_entry).unwrap();
         assert_eq!(record.manufacturer, "test-mfr");
         assert_eq!(record.header_id, 2);
         assert_eq!(record.version_packed, (2 << 24) | (1 << 16));
         assert_eq!(record.x, Some(1.0));
         assert_eq!(record.y, Some(2.5));
+        assert_eq!(record.theta, Some(1.57));
         assert_eq!(record.map_id, Some("map1".to_string()));
         assert!(record.operating_mode.is_none());
     }
@@ -225,5 +252,70 @@ mod tests {
             format!("{:?}", OperatingMode::Service).to_uppercase(),
             "SERVICE"
         );
+    }
+
+    #[test]
+    fn test_parse_record_visualization_with_payload_metadata() {
+        // Test that manufacturer and serial_number are extracted from the visualization payload
+        let log_entry = br#"uagv/v1/topic-mfr/topic-sn/visualization {"headerId":3,"timestamp":"2024-05-20T15:00:00Z","version":"2.1.0","manufacturer":"payload-mfr","serialNumber":"payload-sn","agvPosition":{"x":5.0,"y":10.0,"theta":0.0,"mapId":"map2","positionInitialized":true}}"#;
+        let record = parse_record(log_entry).unwrap();
+
+        // Should use manufacturer and serial_number from the message payload, not the topic
+        assert_eq!(record.manufacturer, "payload-mfr");
+        assert_eq!(record.serial_number, "payload-sn");
+        assert_eq!(record.msg_type, "visualization");
+        assert_eq!(record.header_id, 3);
+        assert_eq!(record.x, Some(5.0));
+        assert_eq!(record.y, Some(10.0));
+        assert_eq!(record.theta, Some(0.0));
+        assert_eq!(record.map_id, Some("map2".to_string()));
+    }
+
+    #[test]
+    fn test_parse_record_visualization_without_payload_metadata() {
+        // Test that topic manufacturer and serial_number are used as fallback
+        let log_entry = br#"uagv/v1/topic-mfr/topic-sn/visualization {"headerId":4,"timestamp":"2024-05-20T15:00:00Z","version":"2.1.0","agvPosition":{"x":7.5,"y":12.5,"theta":3.14,"mapId":"map3","positionInitialized":false}}"#;
+        let record = parse_record(log_entry).unwrap();
+
+        // Should use manufacturer and serial_number from the topic when not in payload
+        assert_eq!(record.manufacturer, "topic-mfr");
+        assert_eq!(record.serial_number, "topic-sn");
+        assert_eq!(record.msg_type, "visualization");
+        assert_eq!(record.header_id, 4);
+    }
+
+    #[test]
+    fn test_parse_record_visualization_missing_header_id() {
+        // Test that visualization without headerId is rejected (even though spec allows it)
+        let log_entry = br#"uagv/v1/test-mfr/test-sn/visualization {"timestamp":"2024-05-20T15:00:00Z","version":"2.1.0","agvPosition":{"x":1.0,"y":2.0,"theta":0.0,"mapId":"map1","positionInitialized":true}}"#;
+        let result = parse_record(log_entry);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("headerId"));
+    }
+
+    #[test]
+    fn test_parse_record_visualization_missing_timestamp() {
+        // Test that visualization without timestamp is rejected
+        let log_entry = br#"uagv/v1/test-mfr/test-sn/visualization {"headerId":5,"version":"2.1.0","agvPosition":{"x":1.0,"y":2.0,"theta":0.0,"mapId":"map1","positionInitialized":true}}"#;
+        let result = parse_record(log_entry);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("timestamp"));
+    }
+
+    #[test]
+    fn test_parse_record_visualization_missing_version() {
+        // Test that visualization without version is rejected
+        let log_entry = br#"uagv/v1/test-mfr/test-sn/visualization {"headerId":6,"timestamp":"2024-05-20T15:00:00Z","agvPosition":{"x":1.0,"y":2.0,"theta":0.0,"mapId":"map1","positionInitialized":true}}"#;
+        let result = parse_record(log_entry);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("version"));
+    }
+
+    #[test]
+    fn test_parse_record_visualization_only_position() {
+        // Test that visualization with only position data (no header fields) is rejected
+        let log_entry = br#"uagv/v1/test-mfr/test-sn/visualization {"agvPosition":{"x":1.0,"y":2.0,"theta":0.0,"mapId":"map1","positionInitialized":true}}"#;
+        let result = parse_record(log_entry);
+        assert!(result.is_err());
     }
 }

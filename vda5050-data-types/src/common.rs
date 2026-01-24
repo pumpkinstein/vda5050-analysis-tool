@@ -111,17 +111,23 @@ pub struct AgvPosition {
     /// Y-coordinate of the AGV in the world coordinate system. In [m].
     pub y: f64,
     /// Orientation of the AGV in [rad].
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub theta: Option<f64>,
+    pub theta: f64,
     /// Identifier of the map.
     pub map_id: String,
-    /// Indicates if the position is initialized.
+    /// Additional information on the map.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub position_initialized: Option<bool>,
+    pub map_description: Option<String>,
+    /// Indicates if the position is initialized.
+    /// True: position is initialized. False: position is not initialized.
+    pub position_initialized: bool,
     /// Score of the localization. Range: [0.0 ... 1.0].
+    /// Describes the quality of the localization (e.g., for SLAM-AGV).
+    /// 0.0: position unknown, 1.0: position known.
+    /// Optional for vehicles that cannot estimate their localization score.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub localization_score: Option<f64>,
-    /// Deviation range of the position. In [m].
+    /// Deviation range of the position in meters.
+    /// Optional for vehicles that cannot estimate their deviation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deviation_range: Option<f64>,
 }
