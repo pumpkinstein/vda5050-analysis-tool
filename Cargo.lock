@@ -590,6 +590,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simd-json",
+ "vda5050-data-types",
 ]
 
 [[package]]
