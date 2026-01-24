@@ -401,7 +401,8 @@ pub struct SafetyState {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum EStop {
     /// Auto-acknowledgeable e-stop is activated, e.g., by bumper or protective field.
-    #[serde(rename = "AUTOACK")]
+    /// While alias isn't correct saw it show up in real world logs
+    #[serde(rename = "AUTOACK", alias = "autoAck")]
     AutoAck,
     /// E-stop has to be acknowledged manually at the vehicle.
     #[serde(rename = "MANUAL")]
