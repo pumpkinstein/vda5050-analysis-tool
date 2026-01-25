@@ -1,7 +1,7 @@
 //! Contains the core parsing logic for VDA 5050 log entries.
 
-use crate::parser::models::{ParsedMessage, TopicMetadata};
 use anyhow::Result;
+use log_file_parser::models::{ParsedMessage, TopicMetadata};
 use log_file_parser::mqtt_log_io::parse_topic;
 use vda5050_data_types::{
     connection::Connection, instant_actions::InstantActions, order::Order, state::State,

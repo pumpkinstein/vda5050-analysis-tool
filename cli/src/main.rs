@@ -5,8 +5,9 @@ use rayon::prelude::*;
 use std::{collections::HashMap, fs::File, path::PathBuf, sync::Mutex, time::Instant};
 
 mod parser;
+use log_file_parser::models::ParsedMessage;
 use log_file_parser::mqtt_log_io::{VdaIterator, parse_version};
-use parser::{models::ParsedMessage, process::parse_record};
+use parser::{builders::AllBuilders, process::parse_record};
 
 /// A high-performance VDA 5050 log analysis tool.
 #[derive(Parser, Debug)]
@@ -19,6 +20,10 @@ struct Args {
     /// Show example parse failures for debugging
     #[arg(short, long)]
     verbose: bool,
+
+    /// Batch size for parallel processing (default: 100,000)
+    #[arg(short, long, default_value = "100000")]
+    batch_size: usize,
 }
 
 fn main() -> Result<()> {
@@ -38,68 +43,245 @@ fn main() -> Result<()> {
     let total_chunks = chunks.len();
 
     println!(
-        "Found {} potential VDA 5050 messages. Parsing in parallel...",
+        "Found {} potential VDA 5050 messages. Processing in parallel batches...",
         total_chunks
     );
 
-    // 3. Process chunks in parallel using Rayon.
+    // 3. Process chunks in parallel batches using Rayon with per-thread builders
     // Track parse failures by message type
     let parse_failures: Mutex<HashMap<String, usize>> = Mutex::new(HashMap::new());
     let parse_examples: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 
-    let messages: Vec<ParsedMessage> = chunks
-        .into_par_iter()
-        .filter_map(|chunk| {
-            match parse_record(chunk) {
-                Ok(message) => Some(message),
-                Err(e) => {
-                    // Extract message type from topic for failure statistics
-                    let chunk_str = std::str::from_utf8(chunk).unwrap_or("");
-                    if let Some(start) = chunk_str.find("uagv/v1/") {
-                        let topic_part = &chunk_str[start + 8..];
-                        if let Some(slash_pos) = topic_part.find('/') {
-                            let rest = &topic_part[slash_pos + 1..];
-                            if let Some(slash_pos2) = rest.find('/') {
-                                let rest2 = &rest[slash_pos2 + 1..];
-                                if let Some(space_pos) = rest2.find(' ') {
-                                    let msg_type = &rest2[..space_pos];
-                                    let mut failures = parse_failures.lock().unwrap();
-                                    *failures.entry(msg_type.to_string()).or_insert(0) += 1;
+    // Split work into batches for parallel processing
+    let batch_size = args.batch_size;
+    let num_batches = (total_chunks + batch_size - 1) / batch_size;
 
-                                    // Store first example of each failure type
-                                    if args.verbose {
-                                        let mut examples = parse_examples.lock().unwrap();
-                                        examples.entry(msg_type.to_string()).or_insert_with(|| {
-                                            let preview = if chunk_str.len() > 200 {
-                                                format!("{}...", &chunk_str[..200])
-                                            } else {
-                                                chunk_str.to_string()
-                                            };
-                                            format!("Error: {}\nExample: {}", e, preview)
-                                        });
+    println!(
+        "Processing {} batches of ~{} messages each...",
+        num_batches, batch_size
+    );
+
+    // Collect DataFrames from each batch
+    let batch_results: Vec<_> = (0..num_batches)
+        .into_par_iter()
+        .map(|batch_idx| {
+            let start_idx = batch_idx * batch_size;
+            let end_idx = (start_idx + batch_size).min(total_chunks);
+            let batch_chunks = &chunks[start_idx..end_idx];
+
+            // Per-thread builders - column-wise append
+            let mut builders = AllBuilders::with_capacity(batch_size);
+            let mut row_id_offset = start_idx as u64;
+
+            for chunk in batch_chunks {
+                match parse_record(chunk) {
+                    Ok(message) => {
+                        let topic = message.topic();
+                        let msg_type = message.msg_type();
+
+                        // Append to builders based on message type (column-wise, no row objects)
+                        match &message {
+                            ParsedMessage::State { data, .. } => {
+                                builders.index.append(
+                                    row_id_offset,
+                                    topic.manufacturer.clone(),
+                                    topic.serial_number.clone(),
+                                    msg_type.to_string(),
+                                    data.header.header_id,
+                                    data.header.timestamp * 1000, // Convert µs to ns
+                                    parse_version(&data.header.version),
+                                );
+
+                                builders.state.append(
+                                    row_id_offset,
+                                    format!("{:?}", data.operating_mode).to_uppercase(),
+                                    data.battery_state.battery_charge,
+                                    !data.errors.is_empty(),
+                                );
+                            }
+                            ParsedMessage::Visualization { data, .. } => {
+                                let manufacturer = data
+                                    .manufacturer
+                                    .clone()
+                                    .unwrap_or_else(|| topic.manufacturer.clone());
+                                let serial_number = data
+                                    .serial_number
+                                    .clone()
+                                    .unwrap_or_else(|| topic.serial_number.clone());
+
+                                builders.index.append(
+                                    row_id_offset,
+                                    manufacturer,
+                                    serial_number,
+                                    msg_type.to_string(),
+                                    data.header_id.unwrap(),
+                                    data.timestamp.unwrap() * 1000, // Convert µs to ns
+                                    parse_version(data.version.as_ref().unwrap()),
+                                );
+
+                                // Extract position data if available
+                                let (x, y, theta, map_id) = if let Some(pos) = &data.agv_position {
+                                    (
+                                        Some(pos.x),
+                                        Some(pos.y),
+                                        Some(pos.theta),
+                                        Some(pos.map_id.clone()),
+                                    )
+                                } else {
+                                    (None, None, None, None)
+                                };
+
+                                builders
+                                    .visualization
+                                    .append(row_id_offset, x, y, theta, map_id);
+                            }
+                            ParsedMessage::Connection { data, .. } => {
+                                builders.index.append(
+                                    row_id_offset,
+                                    topic.manufacturer.clone(),
+                                    topic.serial_number.clone(),
+                                    msg_type.to_string(),
+                                    data.header.header_id,
+                                    data.header.timestamp * 1000, // Convert µs to ns
+                                    parse_version(&data.header.version),
+                                );
+
+                                builders.connection.append(
+                                    row_id_offset,
+                                    format!("{:?}", data.connection_state).to_uppercase(),
+                                );
+                            }
+                            ParsedMessage::Order { data, .. } => {
+                                builders.index.append(
+                                    row_id_offset,
+                                    topic.manufacturer.clone(),
+                                    topic.serial_number.clone(),
+                                    msg_type.to_string(),
+                                    data.header.header_id,
+                                    data.header.timestamp * 1000, // Convert µs to ns
+                                    parse_version(&data.header.version),
+                                );
+
+                                builders.order.append(row_id_offset, data.order_id.clone());
+                            }
+                            ParsedMessage::InstantActions { data, .. } => {
+                                builders.index.append(
+                                    row_id_offset,
+                                    topic.manufacturer.clone(),
+                                    topic.serial_number.clone(),
+                                    msg_type.to_string(),
+                                    data.header.header_id,
+                                    data.header.timestamp * 1000, // Convert µs to ns
+                                    parse_version(&data.header.version),
+                                );
+
+                                builders
+                                    .instant_actions
+                                    .append(row_id_offset, data.actions.len() as u32);
+                            }
+                        }
+
+                        row_id_offset += 1;
+                    }
+                    Err(e) => {
+                        // Extract message type from topic for failure statistics
+                        let chunk_str = std::str::from_utf8(chunk).unwrap_or("");
+                        if let Some(start) = chunk_str.find("uagv/v1/") {
+                            let topic_part = &chunk_str[start + 8..];
+                            if let Some(slash_pos) = topic_part.find('/') {
+                                let rest = &topic_part[slash_pos + 1..];
+                                if let Some(slash_pos2) = rest.find('/') {
+                                    let rest2 = &rest[slash_pos2 + 1..];
+                                    if let Some(space_pos) = rest2.find(' ') {
+                                        let msg_type = &rest2[..space_pos];
+                                        let mut failures = parse_failures.lock().unwrap();
+                                        *failures.entry(msg_type.to_string()).or_insert(0) += 1;
+
+                                        // Store first example of each failure type
+                                        if args.verbose {
+                                            let mut examples = parse_examples.lock().unwrap();
+                                            examples.entry(msg_type.to_string()).or_insert_with(
+                                                || {
+                                                    let preview = if chunk_str.len() > 200 {
+                                                        format!("{}...", &chunk_str[..200])
+                                                    } else {
+                                                        chunk_str.to_string()
+                                                    };
+                                                    format!("Error: {}\nExample: {}", e, preview)
+                                                },
+                                            );
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                    None
                 }
             }
+
+            // Finish builders for this batch and return DataFrames
+            Ok((
+                builders.index.finish()?,
+                builders.state.finish()?,
+                builders.visualization.finish()?,
+                builders.connection.finish()?,
+                builders.order.finish()?,
+                builders.instant_actions.finish()?,
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let parsing_duration = start_time.elapsed();
-    let num_parsed = messages.len();
+
+    // 4. Concatenate batches into final DataFrames
+    println!("Concatenating {} batches...", batch_results.len());
+
+    let mut index_batches = Vec::new();
+    let mut state_batches = Vec::new();
+    let mut viz_batches = Vec::new();
+    let mut conn_batches = Vec::new();
+    let mut order_batches = Vec::new();
+    let mut ia_batches = Vec::new();
+
+    for (index, state, viz, conn, order, ia) in batch_results {
+        if index.height() > 0 {
+            index_batches.push(index);
+        }
+        if state.height() > 0 {
+            state_batches.push(state);
+        }
+        if viz.height() > 0 {
+            viz_batches.push(viz);
+        }
+        if conn.height() > 0 {
+            conn_batches.push(conn);
+        }
+        if order.height() > 0 {
+            order_batches.push(order);
+        }
+        if ia.height() > 0 {
+            ia_batches.push(ia);
+        }
+    }
+
+    let index_df = concatenate_dataframes(&index_batches)?;
+    let state_df = concatenate_dataframes(&state_batches)?;
+    let viz_df = concatenate_dataframes(&viz_batches)?;
+    let conn_df = concatenate_dataframes(&conn_batches)?;
+    let order_df = concatenate_dataframes(&order_batches)?;
+    let ia_df = concatenate_dataframes(&ia_batches)?;
+
+    let num_parsed = index_df.height();
     let num_failed = total_chunks - num_parsed;
 
     println!(
-        "Parsed {} records in {:.2?}. (Ignored {} entries)",
+        "Processed {} records in {:.2?}. (Ignored {} entries)",
         num_parsed, parsing_duration, num_failed
     );
 
     // Show summary of parse failures by message type
     if num_failed > 0 {
-        let failures = parse_failures.lock().unwrap();
+        let failures = parse_failures.into_inner().unwrap();
         if !failures.is_empty() {
             println!("\nParse failure summary:");
             let mut sorted_failures: Vec<_> = failures.iter().collect();
@@ -113,7 +295,7 @@ fn main() -> Result<()> {
 
             // Show examples if verbose mode is enabled
             if args.verbose {
-                let examples = parse_examples.lock().unwrap();
+                let examples = parse_examples.into_inner().unwrap();
                 println!("\nExample parse failures:");
                 for (msg_type, example) in examples.iter() {
                     println!("\n  Message type: {}", msg_type);
@@ -122,184 +304,6 @@ fn main() -> Result<()> {
             }
         }
     }
-
-    println!("Building DataFrames...");
-
-    // 4. Separate messages by type and build DataFrames
-    // Index DataFrame - common fields for all messages
-    let mut index_row_ids = Vec::with_capacity(num_parsed);
-    let mut index_manufacturers = Vec::with_capacity(num_parsed);
-    let mut index_serial_numbers = Vec::with_capacity(num_parsed);
-    let mut index_msg_types = Vec::with_capacity(num_parsed);
-    let mut index_header_ids = Vec::with_capacity(num_parsed);
-    let mut index_timestamps = Vec::with_capacity(num_parsed);
-    let mut index_versions = Vec::with_capacity(num_parsed);
-
-    // Type-specific vectors
-    let mut state_row_ids = Vec::new();
-    let mut state_operating_modes = Vec::new();
-    let mut state_battery_charges = Vec::new();
-    let mut state_has_errors = Vec::new();
-
-    let mut viz_row_ids = Vec::new();
-    let mut viz_xs = Vec::new();
-    let mut viz_ys = Vec::new();
-    let mut viz_thetas = Vec::new();
-    let mut viz_map_ids = Vec::new();
-
-    let mut conn_row_ids = Vec::new();
-    let mut conn_states = Vec::new();
-
-    let mut order_row_ids = Vec::new();
-    let mut order_ids = Vec::new();
-
-    let mut ia_row_ids = Vec::new();
-    let mut ia_action_counts = Vec::new();
-
-    // Process messages and split by type
-    for (row_id, message) in messages.into_iter().enumerate() {
-        let row_id = row_id as u64;
-        let topic = message.topic();
-        let msg_type = message.msg_type();
-
-        // Extract common header fields and add to index
-        match &message {
-            ParsedMessage::State { data, .. } => {
-                index_row_ids.push(row_id);
-                index_manufacturers.push(topic.manufacturer.clone());
-                index_serial_numbers.push(topic.serial_number.clone());
-                index_msg_types.push(msg_type.to_string());
-                index_header_ids.push(data.header.header_id);
-                index_timestamps.push(data.header.timestamp);
-                index_versions.push(parse_version(&data.header.version));
-
-                // Add state-specific data
-                state_row_ids.push(row_id);
-                state_operating_modes
-                    .push(Some(format!("{:?}", data.operating_mode).to_uppercase()));
-                state_battery_charges.push(Some(data.battery_state.battery_charge));
-                state_has_errors.push(Some(!data.errors.is_empty()));
-            }
-            ParsedMessage::Visualization { data, .. } => {
-                // Use manufacturer/serial from payload if available, otherwise from topic
-                let manufacturer = data
-                    .manufacturer
-                    .clone()
-                    .unwrap_or_else(|| topic.manufacturer.clone());
-                let serial_number = data
-                    .serial_number
-                    .clone()
-                    .unwrap_or_else(|| topic.serial_number.clone());
-
-                index_row_ids.push(row_id);
-                index_manufacturers.push(manufacturer);
-                index_serial_numbers.push(serial_number);
-                index_msg_types.push(msg_type.to_string());
-                index_header_ids.push(data.header_id.unwrap());
-                index_timestamps.push(data.timestamp.unwrap());
-                index_versions.push(parse_version(&data.version.as_ref().unwrap()));
-
-                // Add visualization-specific data
-                viz_row_ids.push(row_id);
-                if let Some(pos) = &data.agv_position {
-                    viz_xs.push(Some(pos.x));
-                    viz_ys.push(Some(pos.y));
-                    viz_thetas.push(Some(pos.theta));
-                    viz_map_ids.push(Some(pos.map_id.clone()));
-                } else {
-                    viz_xs.push(None);
-                    viz_ys.push(None);
-                    viz_thetas.push(None);
-                    viz_map_ids.push(None);
-                }
-            }
-            ParsedMessage::Connection { data, .. } => {
-                index_row_ids.push(row_id);
-                index_manufacturers.push(topic.manufacturer.clone());
-                index_serial_numbers.push(topic.serial_number.clone());
-                index_msg_types.push(msg_type.to_string());
-                index_header_ids.push(data.header.header_id);
-                index_timestamps.push(data.header.timestamp);
-                index_versions.push(parse_version(&data.header.version));
-
-                // Add connection-specific data
-                conn_row_ids.push(row_id);
-                conn_states.push(Some(format!("{:?}", data.connection_state).to_uppercase()));
-            }
-            ParsedMessage::Order { data, .. } => {
-                index_row_ids.push(row_id);
-                index_manufacturers.push(topic.manufacturer.clone());
-                index_serial_numbers.push(topic.serial_number.clone());
-                index_msg_types.push(msg_type.to_string());
-                index_header_ids.push(data.header.header_id);
-                index_timestamps.push(data.header.timestamp);
-                index_versions.push(parse_version(&data.header.version));
-
-                // Add order-specific data
-                order_row_ids.push(row_id);
-                order_ids.push(Some(data.order_id.clone()));
-            }
-            ParsedMessage::InstantActions { data, .. } => {
-                index_row_ids.push(row_id);
-                index_manufacturers.push(topic.manufacturer.clone());
-                index_serial_numbers.push(topic.serial_number.clone());
-                index_msg_types.push(msg_type.to_string());
-                index_header_ids.push(data.header.header_id);
-                index_timestamps.push(data.header.timestamp);
-                index_versions.push(parse_version(&data.header.version));
-
-                // Add instant actions-specific data
-                ia_row_ids.push(row_id);
-                ia_action_counts.push(Some(data.actions.len() as u32));
-            }
-        }
-    }
-
-    // Build Index DataFrame
-    let index_df = df!(
-        "row_id" => index_row_ids,
-        "manufacturer" => index_manufacturers,
-        "serial_number" => index_serial_numbers,
-        "msg_type" => index_msg_types,
-        "header_id" => index_header_ids,
-        "timestamp" => Series::new("timestamp".into(), index_timestamps).cast(&DataType::Datetime(TimeUnit::Microseconds, None))?,
-        "version_packed" => index_versions,
-    )?;
-
-    // Build State DataFrame
-    let state_df = df!(
-        "row_id" => state_row_ids,
-        "operating_mode" => state_operating_modes,
-        "battery_charge" => state_battery_charges,
-        "has_errors" => state_has_errors,
-    )?;
-
-    // Build Visualization DataFrame
-    let viz_df = df!(
-        "row_id" => viz_row_ids,
-        "x" => viz_xs,
-        "y" => viz_ys,
-        "theta" => viz_thetas,
-        "map_id" => viz_map_ids,
-    )?;
-
-    // Build Connection DataFrame
-    let conn_df = df!(
-        "row_id" => conn_row_ids,
-        "connection_state" => conn_states,
-    )?;
-
-    // Build Order DataFrame
-    let order_df = df!(
-        "row_id" => order_row_ids,
-        "order_id" => order_ids,
-    )?;
-
-    // Build InstantActions DataFrame
-    let ia_df = df!(
-        "row_id" => ia_row_ids,
-        "action_count" => ia_action_counts,
-    )?;
 
     let build_duration = start_time.elapsed() - parsing_duration;
     println!("DataFrames built in {:.2?}.", build_duration);
@@ -387,5 +391,26 @@ fn main() -> Result<()> {
             .value_counts(true, false, "count".into(), false)?
     );
 
+    println!("\nTotal processing time: {:.2?}", start_time.elapsed());
+
     Ok(())
+}
+
+/// Concatenates multiple DataFrames into one, or returns empty DataFrame if list is empty
+fn concatenate_dataframes(dfs: &[DataFrame]) -> Result<DataFrame> {
+    if dfs.is_empty() {
+        // Return empty DataFrame with no columns
+        return Ok(DataFrame::empty());
+    }
+
+    if dfs.len() == 1 {
+        return Ok(dfs[0].clone());
+    }
+
+    // Use Polars vstack to vertically stack DataFrames
+    let mut result = dfs[0].clone();
+    for df in &dfs[1..] {
+        result.vstack_mut(df)?;
+    }
+    Ok(result)
 }
