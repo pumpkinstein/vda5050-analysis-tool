@@ -9,7 +9,7 @@ use vda5050_data_types::{
 };
 
 /// Parses a complete log entry slice (`&[u8]`) into a `ParsedMessage`.
-pub fn parse_record(input: &[u8]) -> Result<ParsedMessage> {
+pub(crate) fn parse_record(input: &[u8]) -> Result<ParsedMessage> {
     // The VdaIterator gives us slices that start with `uagv/v1/`. We strip it before topic parsing.
     let input = input
         .strip_prefix(b"uagv/v1/")

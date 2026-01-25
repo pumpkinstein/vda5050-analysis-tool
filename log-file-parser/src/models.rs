@@ -7,14 +7,14 @@ use vda5050_data_types::{
 
 /// Minimal metadata extracted from the MQTT topic
 #[derive(Debug, Clone)]
-pub struct TopicMetadata {
+pub(crate) struct TopicMetadata {
     pub manufacturer: String,
     pub serial_number: String,
 }
 
 /// A parsed VDA 5050 message with topic metadata
 #[derive(Debug)]
-pub enum ParsedMessage {
+pub(crate) enum ParsedMessage {
     State {
         topic: TopicMetadata,
         data: State,
@@ -39,7 +39,7 @@ pub enum ParsedMessage {
 
 impl ParsedMessage {
     /// Get the message type as a string
-    pub fn msg_type(&self) -> &str {
+    pub(crate) fn msg_type(&self) -> &str {
         match self {
             ParsedMessage::State { .. } => "state",
             ParsedMessage::Visualization { .. } => "visualization",
@@ -50,7 +50,7 @@ impl ParsedMessage {
     }
 
     /// Get the topic metadata from any message variant
-    pub fn topic(&self) -> &TopicMetadata {
+    pub(crate) fn topic(&self) -> &TopicMetadata {
         match self {
             ParsedMessage::State { topic, .. } => topic,
             ParsedMessage::Visualization { topic, .. } => topic,

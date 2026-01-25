@@ -10,7 +10,7 @@
 use polars::prelude::*;
 
 /// Index builders - common fields for all message types
-pub struct IndexBuilders {
+pub(crate) struct IndexBuilders {
     pub row_id: Vec<u64>,
     pub manufacturer: Vec<String>,
     pub serial_number: Vec<String>,
@@ -21,7 +21,7 @@ pub struct IndexBuilders {
 }
 
 impl IndexBuilders {
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             row_id: Vec::with_capacity(capacity),
             manufacturer: Vec::with_capacity(capacity),
@@ -33,7 +33,7 @@ impl IndexBuilders {
         }
     }
 
-    pub fn append(
+    pub(crate) fn append(
         &mut self,
         row_id: u64,
         manufacturer: String,
@@ -52,7 +52,7 @@ impl IndexBuilders {
         self.version_packed.push(version_packed);
     }
 
-    pub fn finish(self) -> PolarsResult<DataFrame> {
+    pub(crate) fn finish(self) -> PolarsResult<DataFrame> {
         df!(
             "row_id" => self.row_id,
             "manufacturer" => self.manufacturer,
@@ -67,7 +67,7 @@ impl IndexBuilders {
 }
 
 /// State message builders
-pub struct StateBuilders {
+pub(crate) struct StateBuilders {
     pub row_id: Vec<u64>,
     pub operating_mode: Vec<String>,
     pub battery_charge: Vec<f64>,
@@ -75,7 +75,7 @@ pub struct StateBuilders {
 }
 
 impl StateBuilders {
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             row_id: Vec::with_capacity(capacity),
             operating_mode: Vec::with_capacity(capacity),
@@ -84,7 +84,7 @@ impl StateBuilders {
         }
     }
 
-    pub fn append(
+    pub(crate) fn append(
         &mut self,
         row_id: u64,
         operating_mode: String,
@@ -97,7 +97,7 @@ impl StateBuilders {
         self.has_errors.push(has_errors);
     }
 
-    pub fn finish(self) -> PolarsResult<DataFrame> {
+    pub(crate) fn finish(self) -> PolarsResult<DataFrame> {
         df!(
             "row_id" => self.row_id,
             "operating_mode" => self.operating_mode,
@@ -108,7 +108,7 @@ impl StateBuilders {
 }
 
 /// Visualization message builders
-pub struct VisualizationBuilders {
+pub(crate) struct VisualizationBuilders {
     pub row_id: Vec<u64>,
     pub x: Vec<Option<f64>>,
     pub y: Vec<Option<f64>>,
@@ -117,7 +117,7 @@ pub struct VisualizationBuilders {
 }
 
 impl VisualizationBuilders {
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             row_id: Vec::with_capacity(capacity),
             x: Vec::with_capacity(capacity),
@@ -127,7 +127,7 @@ impl VisualizationBuilders {
         }
     }
 
-    pub fn append(
+    pub(crate) fn append(
         &mut self,
         row_id: u64,
         x: Option<f64>,
@@ -142,7 +142,7 @@ impl VisualizationBuilders {
         self.map_id.push(map_id);
     }
 
-    pub fn finish(self) -> PolarsResult<DataFrame> {
+    pub(crate) fn finish(self) -> PolarsResult<DataFrame> {
         df!(
             "row_id" => self.row_id,
             "x" => self.x,
@@ -154,25 +154,25 @@ impl VisualizationBuilders {
 }
 
 /// Connection message builders
-pub struct ConnectionBuilders {
+pub(crate) struct ConnectionBuilders {
     pub row_id: Vec<u64>,
     pub connection_state: Vec<String>,
 }
 
 impl ConnectionBuilders {
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             row_id: Vec::with_capacity(capacity),
             connection_state: Vec::with_capacity(capacity),
         }
     }
 
-    pub fn append(&mut self, row_id: u64, connection_state: String) {
+    pub(crate) fn append(&mut self, row_id: u64, connection_state: String) {
         self.row_id.push(row_id);
         self.connection_state.push(connection_state);
     }
 
-    pub fn finish(self) -> PolarsResult<DataFrame> {
+    pub(crate) fn finish(self) -> PolarsResult<DataFrame> {
         df!(
             "row_id" => self.row_id,
             "connection_state" => self.connection_state,
@@ -181,25 +181,25 @@ impl ConnectionBuilders {
 }
 
 /// Order message builders
-pub struct OrderBuilders {
+pub(crate) struct OrderBuilders {
     pub row_id: Vec<u64>,
     pub order_id: Vec<String>,
 }
 
 impl OrderBuilders {
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             row_id: Vec::with_capacity(capacity),
             order_id: Vec::with_capacity(capacity),
         }
     }
 
-    pub fn append(&mut self, row_id: u64, order_id: String) {
+    pub(crate) fn append(&mut self, row_id: u64, order_id: String) {
         self.row_id.push(row_id);
         self.order_id.push(order_id);
     }
 
-    pub fn finish(self) -> PolarsResult<DataFrame> {
+    pub(crate) fn finish(self) -> PolarsResult<DataFrame> {
         df!(
             "row_id" => self.row_id,
             "order_id" => self.order_id,
@@ -214,19 +214,19 @@ pub struct InstantActionsBuilders {
 }
 
 impl InstantActionsBuilders {
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             row_id: Vec::with_capacity(capacity),
             action_count: Vec::with_capacity(capacity),
         }
     }
 
-    pub fn append(&mut self, row_id: u64, action_count: u32) {
+    pub(crate) fn append(&mut self, row_id: u64, action_count: u32) {
         self.row_id.push(row_id);
         self.action_count.push(action_count);
     }
 
-    pub fn finish(self) -> PolarsResult<DataFrame> {
+    pub(crate) fn finish(self) -> PolarsResult<DataFrame> {
         df!(
             "row_id" => self.row_id,
             "action_count" => self.action_count,
@@ -235,7 +235,7 @@ impl InstantActionsBuilders {
 }
 
 /// Container for all builder types
-pub struct AllBuilders {
+pub(crate) struct AllBuilders {
     pub index: IndexBuilders,
     pub state: StateBuilders,
     pub visualization: VisualizationBuilders,
@@ -245,7 +245,7 @@ pub struct AllBuilders {
 }
 
 impl AllBuilders {
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             index: IndexBuilders::with_capacity(capacity),
             state: StateBuilders::with_capacity(capacity),

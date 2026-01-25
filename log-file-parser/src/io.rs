@@ -12,7 +12,7 @@ use nom::{
 /// VDA 5050 logs can be multiline and don't have a consistent line-based separator. However,
 /// each VDA 5050 MQTT message topic starts with the byte pattern known as root topic. E.g. `uagv/v1/`.
 /// This iterator uses that pattern as a delimiter to find the start of each message.
-pub struct VdaIterator<'a> {
+pub(crate) struct VdaIterator<'a> {
     /// The full data slice to iterate over.
     data: &'a [u8],
     /// A boxed iterator that yields the starting indices of all occurrences of the delimiter.
@@ -24,7 +24,7 @@ pub struct VdaIterator<'a> {
 
 impl<'a> VdaIterator<'a> {
     /// Creates a new `VdaIterator` for the given data slice.
-    pub fn new(data: &'a [u8]) -> Self {
+    pub(crate) fn new(data: &'a [u8]) -> Self {
         // The delimiter that signifies the start of a VDA 5050 message.
         // TOOD: pass this as argument
         const VDA5050_DELIMITER: &[u8] = b"uagv/v1/";
@@ -66,14 +66,14 @@ impl<'a> Iterator for VdaIterator<'a> {
 }
 
 /// A temporary struct to hold the fields parsed from the MQTT topic.
-pub struct Topic<'a> {
+pub(crate) struct Topic<'a> {
     pub manufacturer: &'a str,
     pub serial_number: &'a str,
     pub msg_type: &'a str,
 }
 
 /// Uses `nom` to parse the VDA 5050 topic prefix from a raw log entry slice.
-pub fn parse_topic<'a>(input: &'a [u8]) -> IResult<&'a [u8], Topic<'a>> {
+pub(crate) fn parse_topic<'a>(input: &'a [u8]) -> IResult<&'a [u8], Topic<'a>> {
     let not_separator = |c: u8| c != b'/' && c != b' ';
 
     let (rest, (manufacturer, _, serial_number, _, msg_type, _)) = (
@@ -96,7 +96,7 @@ pub fn parse_topic<'a>(input: &'a [u8]) -> IResult<&'a [u8], Topic<'a>> {
 }
 
 /// Parses a SemVer string (e.g., "2.0.1") into a packed u32 for efficient comparison and storage.
-pub fn parse_version(version: &str) -> u32 {
+pub(crate) fn parse_version(version: &str) -> u32 {
     let mut parts = version.split('.');
     let major = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
     let minor = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
