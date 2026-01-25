@@ -1,4 +1,4 @@
-use crate::common::{AgvPosition, Velocity, deserialize_timestamp, serialize_timestamp};
+use crate::common::{AgvPosition, Velocity};
 use serde::{Deserialize, Serialize};
 
 /// A message for visualization purposes.
