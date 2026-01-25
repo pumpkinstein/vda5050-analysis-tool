@@ -8,12 +8,42 @@ use vda5050_data_types::{
     visualization::Visualization,
 };
 
+/// Reusable scratch space for parsing multiple JSON payloads.
+///
+/// The parsed VDA objects own their deserialized strings and values, so both
+/// buffers can be reused after `parse_record_with_buffers` returns.
+pub(crate) struct ParseBuffers {
+    json: Vec<u8>,
+    simd: simd_json::Buffers,
+}
+
+impl Default for ParseBuffers {
+    fn default() -> Self {
+        Self {
+            json: Vec::new(),
+            simd: simd_json::Buffers::default(),
+        }
+    }
+}
+
 /// Parses a complete log entry slice (`&[u8]`) into a `ParsedMessage`.
+#[cfg(test)]
 pub(crate) fn parse_record(input: &[u8]) -> Result<ParsedMessage> {
-    // The VdaIterator gives us slices that start with `uagv/v1/`. We strip it before topic parsing.
+    let mut buffers = ParseBuffers::default();
+    let root_topic_prefix = crate::io::root_topic_prefix(crate::DEFAULT_ROOT_TOPIC).unwrap();
+    parse_record_with_buffers(input, &mut buffers, &root_topic_prefix)
+}
+
+/// Parses a complete log entry using reusable JSON and SIMD parser buffers.
+pub(crate) fn parse_record_with_buffers(
+    input: &[u8],
+    buffers: &mut ParseBuffers,
+    root_topic_prefix: &[u8],
+) -> Result<ParsedMessage> {
+    // The VdaIterator gives us slices that start with the root topic. We strip it before topic parsing.
     let input = input
-        .strip_prefix(b"uagv/v1/")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'uagv/v1/' prefix"))?;
+        .strip_prefix(root_topic_prefix)
+        .ok_or_else(|| anyhow::anyhow!("Missing root topic prefix"))?;
 
     let (json_payload, topic) =
         parse_topic(input).map_err(|e| anyhow::anyhow!("Topic parsing failed: {}", e))?;
@@ -23,19 +53,23 @@ pub(crate) fn parse_record(input: &[u8]) -> Result<ParsedMessage> {
         serial_number: topic.serial_number.to_string(),
     };
 
-    // Use simd-json for faster parsing. It requires a mutable slice, so we make a copy.
-    let mut json_bytes = json_payload.to_vec();
+    // simd-json requires a mutable slice. Reuse its input allocation and parser
+    // scratch buffers rather than allocating both for every record.
+    buffers.json.clear();
+    buffers.json.extend_from_slice(json_payload);
 
     let message = match topic.msg_type {
         "state" => {
-            let state: State = simd_json::serde::from_slice(&mut json_bytes)?;
+            let state: State =
+                simd_json::serde::from_slice_with_buffers(&mut buffers.json, &mut buffers.simd)?;
             ParsedMessage::State {
                 topic: topic_meta,
                 data: state,
             }
         }
         "visualization" => {
-            let viz: Visualization = simd_json::serde::from_slice(&mut json_bytes)?;
+            let viz: Visualization =
+                simd_json::serde::from_slice_with_buffers(&mut buffers.json, &mut buffers.simd)?;
 
             // Per VDA5050 schema, all fields in visualization are optional.
             // However, for data analysis purposes, we need at least header_id and timestamp.
@@ -56,21 +90,24 @@ pub(crate) fn parse_record(input: &[u8]) -> Result<ParsedMessage> {
             }
         }
         "connection" => {
-            let conn: Connection = simd_json::serde::from_slice(&mut json_bytes)?;
+            let conn: Connection =
+                simd_json::serde::from_slice_with_buffers(&mut buffers.json, &mut buffers.simd)?;
             ParsedMessage::Connection {
                 topic: topic_meta,
                 data: conn,
             }
         }
         "order" => {
-            let order: Order = simd_json::serde::from_slice(&mut json_bytes)?;
+            let order: Order =
+                simd_json::serde::from_slice_with_buffers(&mut buffers.json, &mut buffers.simd)?;
             ParsedMessage::Order {
                 topic: topic_meta,
                 data: order,
             }
         }
         "instantActions" => {
-            let instant_actions: InstantActions = simd_json::serde::from_slice(&mut json_bytes)?;
+            let instant_actions: InstantActions =
+                simd_json::serde::from_slice_with_buffers(&mut buffers.json, &mut buffers.simd)?;
             ParsedMessage::InstantActions {
                 topic: topic_meta,
                 data: instant_actions,
@@ -90,6 +127,20 @@ pub(crate) fn parse_record(input: &[u8]) -> Result<ParsedMessage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_record_with_reused_buffers() {
+        let invalid_log_entry = br#"uagv/v1/test-mfr/test-sn/connection {"#;
+        let log_entry = br#"uagv/v1/test-mfr/test-sn/connection {"headerId":1,"timestamp":"2024-05-20T14:35:12.123Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"test-sn","connectionState":"ONLINE"}"#;
+        let mut buffers = ParseBuffers::default();
+
+        assert!(parse_record_with_buffers(invalid_log_entry, &mut buffers, b"uagv/v1/").is_err());
+
+        for _ in 0..2 {
+            let message = parse_record_with_buffers(log_entry, &mut buffers, b"uagv/v1/").unwrap();
+            assert!(matches!(message, ParsedMessage::Connection { .. }));
+        }
+    }
 
     #[test]
     fn test_parse_record_state() {
@@ -348,6 +399,22 @@ mod tests {
                 assert_eq!(data.actions.len(), 2);
             }
             _ => panic!("Expected InstantActions message"),
+        }
+    }
+
+    #[test]
+    fn test_parse_record_custom_root_topic() {
+        let log_entry = br#"fleet/v2/test-mfr/agv-001/order {"headerId":50,"timestamp":"2024-05-20T12:00:00Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"agv-001","orderId":"order-789","orderUpdateId":0,"nodes":[],"edges":[]}"#;
+        let mut buffers = ParseBuffers::default();
+        let message = parse_record_with_buffers(log_entry, &mut buffers, b"fleet/v2/").unwrap();
+
+        match message {
+            ParsedMessage::Order { topic, data } => {
+                assert_eq!(topic.manufacturer, "test-mfr");
+                assert_eq!(topic.serial_number, "agv-001");
+                assert_eq!(data.order_id, "order-789");
+            }
+            _ => panic!("Expected Order message"),
         }
     }
 }

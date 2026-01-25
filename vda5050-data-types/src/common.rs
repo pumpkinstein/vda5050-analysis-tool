@@ -1,14 +1,155 @@
+use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 
-/// Custom deserializer for timestamps: parses ISO8601 string to microseconds since epoch
+/// Custom deserializer for timestamps: parses ISO8601 string to microseconds since epoch.
+///
+/// This uses a visitor instead of deserializing into `String` so deserializers
+/// such as simd-json can provide an ordinary timestamp as a borrowed `&str`.
+/// The timestamp is parsed immediately, avoiding one owned string allocation
+/// and copy per message while retaining owned and transient-string fallbacks.
 pub fn deserialize_timestamp<'de, D>(deserializer: D) -> Result<i64, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
-    chrono::DateTime::parse_from_rfc3339(&s)
+    deserializer.deserialize_str(TimestampVisitor)
+}
+
+/// Custom deserializer for optional timestamps.
+///
+/// It preserves the borrowed-string path used by `deserialize_timestamp` and
+/// handles `null` directly instead of allocating an intermediate `Option<String>`.
+pub fn deserialize_optional_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserializer.deserialize_option(OptionalTimestampVisitor)
+}
+
+struct TimestampVisitor;
+
+impl<'de> Visitor<'de> for TimestampVisitor {
+    type Value = i64;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an RFC3339 timestamp string")
+    }
+
+    fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        parse_timestamp(value).map_err(E::custom)
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        parse_timestamp(value).map_err(E::custom)
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        parse_timestamp(&value).map_err(E::custom)
+    }
+}
+
+struct OptionalTimestampVisitor;
+
+impl<'de> Visitor<'de> for OptionalTimestampVisitor {
+    type Value = Option<i64>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an optional RFC3339 timestamp string")
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(None)
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_timestamp(deserializer).map(Some)
+    }
+}
+
+/// Parses the common UTC timestamp representation without allocating.
+///
+/// RFC3339 timestamps that do not match this shape are handled by Chrono so
+/// offsets, unusual fractional precision, and all validation semantics remain
+/// supported.
+fn parse_timestamp(value: &str) -> Result<i64, String> {
+    if let Some(timestamp) = parse_common_utc_timestamp(value) {
+        return Ok(timestamp);
+    }
+
+    chrono::DateTime::parse_from_rfc3339(value)
         .map(|dt| dt.timestamp_micros())
-        .map_err(serde::de::Error::custom)
+        .map_err(|error| error.to_string())
+}
+
+/// Fast path for `YYYY-MM-DDTHH:MM:SS[.ffffff]Z`.
+///
+/// Fractions with up to six digits are sufficient for the microsecond output
+/// type. Longer fractions deliberately use Chrono so they retain the parser's
+/// established truncation and validation behavior.
+#[inline]
+fn parse_common_utc_timestamp(value: &str) -> Option<i64> {
+    let bytes = value.as_bytes();
+    let fraction_digits = match bytes.len() {
+        20 if bytes[19] == b'Z' => 0,
+        length @ 22..=27 if bytes[19] == b'.' && bytes[length - 1] == b'Z' => length - 21,
+        _ => return None,
+    };
+
+    if bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+
+    let year = parse_two_digits(bytes[0], bytes[1])? * 100 + parse_two_digits(bytes[2], bytes[3])?;
+    let month = parse_two_digits(bytes[5], bytes[6])?;
+    let day = parse_two_digits(bytes[8], bytes[9])?;
+    let hour = parse_two_digits(bytes[11], bytes[12])?;
+    let minute = parse_two_digits(bytes[14], bytes[15])?;
+    let second = parse_two_digits(bytes[17], bytes[18])?;
+
+    let mut microsecond = 0;
+    for index in 0..fraction_digits {
+        let digit = bytes[20 + index];
+        if !digit.is_ascii_digit() {
+            return None;
+        }
+        microsecond = microsecond * 10 + (digit - b'0') as u32;
+    }
+    for _ in fraction_digits..6 {
+        microsecond *= 10;
+    }
+
+    chrono::NaiveDate::from_ymd_opt(year as i32, month as u32, day as u32)?
+        .and_hms_micro_opt(hour as u32, minute as u32, second as u32, microsecond)
+        .map(|datetime| datetime.and_utc().timestamp_micros())
+}
+
+#[inline]
+fn parse_two_digits(first: u8, second: u8) -> Option<u32> {
+    if first.is_ascii_digit() && second.is_ascii_digit() {
+        Some(((first - b'0') as u32) * 10 + (second - b'0') as u32)
+    } else {
+        None
+    }
 }
 
 /// Custom serializer for timestamps: formats microseconds since epoch as ISO8601 string
@@ -196,4 +337,53 @@ pub struct Point {
     /// Z coordinate of the point. In [m].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub z: Option<f64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn common_utc_forms_match_chrono() {
+        for value in [
+            "2025-04-12T06:19:23Z",
+            "2025-04-12T06:19:23.1Z",
+            "2025-04-12T06:19:23.144Z",
+            "2025-04-12T06:19:23.144189Z",
+        ] {
+            let expected = chrono::DateTime::parse_from_rfc3339(value)
+                .unwrap()
+                .timestamp_micros();
+
+            assert_eq!(parse_common_utc_timestamp(value), Some(expected));
+            assert_eq!(parse_timestamp(value).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn non_common_rfc3339_forms_use_fallback() {
+        for value in [
+            "2025-04-12T08:19:23.144189+02:00",
+            "2025-04-12T06:19:23.144189123Z",
+        ] {
+            let expected = chrono::DateTime::parse_from_rfc3339(value)
+                .unwrap()
+                .timestamp_micros();
+
+            assert_eq!(parse_common_utc_timestamp(value), None);
+            assert_eq!(parse_timestamp(value).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn invalid_common_forms_are_rejected_without_panicking() {
+        for value in [
+            "2025-02-29T06:19:23Z",
+            "2025-04-12T25:19:23Z",
+            "2025-04-12T06:19:23.abcdZ",
+            "2025-04-12T06:19:23",
+        ] {
+            assert!(parse_timestamp(value).is_err(), "invalid value: {value}");
+        }
+    }
 }

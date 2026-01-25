@@ -10,33 +10,28 @@ use nom::{
 /// An iterator that splits a byte slice containing VDA 5050 log data into individual message records.
 ///
 /// VDA 5050 logs can be multiline and don't have a consistent line-based separator. However,
-/// each VDA 5050 MQTT message topic starts with the byte pattern known as root topic. E.g. `uagv/v1/`.
-/// This iterator uses that pattern as a delimiter to find the start of each message.
+/// each VDA 5050 MQTT message topic starts with the configured root topic. This iterator uses
+/// that pattern as a delimiter to find the start of each message.
 pub(crate) struct VdaIterator<'a> {
     /// The full data slice to iterate over.
     data: &'a [u8],
-    /// A boxed iterator that yields the starting indices of all occurrences of the delimiter.
-    /// We use a trait object because the concrete type is not easily nameable.
-    indices: Box<dyn Iterator<Item = usize> + 'a>,
+    /// The root topic, including its trailing slash, used as the message delimiter.
+    delimiter: Vec<u8>,
     /// The starting index of the *current* message record that `next()` will return.
     current_match_start: Option<usize>,
 }
 
 impl<'a> VdaIterator<'a> {
-    /// Creates a new `VdaIterator` for the given data slice.
-    pub(crate) fn new(data: &'a [u8]) -> Self {
-        // The delimiter that signifies the start of a VDA 5050 message.
-        // TOOD: pass this as argument
-        const VDA5050_DELIMITER: &[u8] = b"uagv/v1/";
+    /// Creates a new `VdaIterator` for the given data slice and root-topic prefix.
+    pub(crate) fn new(data: &'a [u8], root_topic_prefix: &[u8]) -> Self {
+        let delimiter = root_topic_prefix.to_vec();
 
-        let mut indices = Box::new(data.find_iter(VDA5050_DELIMITER));
-
-        // The first call to `indices.next()` finds the start of the very first record.
-        let first_match = indices.next();
+        // The first match finds the start of the very first record.
+        let first_match = data.find(delimiter.as_slice());
 
         Self {
             data,
-            indices,
+            delimiter,
             current_match_start: first_match,
         }
     }
@@ -51,7 +46,10 @@ impl<'a> Iterator for VdaIterator<'a> {
         let start = self.current_match_start?;
 
         // Find the start of the *next* record. This will be the end of our *current* record.
-        let next_match = self.indices.next();
+        let search_start = start + self.delimiter.len();
+        let next_match = self.data[search_start..]
+            .find(self.delimiter.as_slice())
+            .map(|offset| search_start + offset);
 
         // The next call to `next()` will start from this new position.
         self.current_match_start = next_match;
@@ -63,6 +61,21 @@ impl<'a> Iterator for VdaIterator<'a> {
         // The resulting slice is the complete VDA 5050 message record.
         Some(&self.data[start..end])
     }
+}
+
+/// Converts a root topic such as `uagv/v1` into the prefix used in log records.
+///
+/// A trailing slash is accepted so values entered as either `uagv/v1` or `uagv/v1/`
+/// behave identically.
+pub(crate) fn root_topic_prefix(root_topic: &str) -> anyhow::Result<Vec<u8>> {
+    let root_topic = root_topic.trim_end_matches('/');
+    if root_topic.is_empty() {
+        anyhow::bail!("Root topic must not be empty");
+    }
+
+    let mut prefix = root_topic.as_bytes().to_vec();
+    prefix.push(b'/');
+    Ok(prefix)
 }
 
 /// A temporary struct to hold the fields parsed from the MQTT topic.
@@ -112,7 +125,7 @@ mod tests {
     fn test_vda_iterator_simple() {
         let log_data =
             b"some preamble...uagv/v1/first_msg...some trailing data...uagv/v1/second_msg...end";
-        let mut iterator = VdaIterator::new(log_data);
+        let mut iterator = VdaIterator::new(log_data, b"uagv/v1/");
 
         assert_eq!(
             iterator.next(),
@@ -125,14 +138,14 @@ mod tests {
     #[test]
     fn test_vda_iterator_no_matches() {
         let log_data = b"no vda messages here";
-        let mut iterator = VdaIterator::new(log_data);
+        let mut iterator = VdaIterator::new(log_data, b"uagv/v1/");
         assert_eq!(iterator.next(), None);
     }
 
     #[test]
     fn test_vda_iterator_starts_with_match() {
         let log_data = b"uagv/v1/first...uagv/v1/second";
-        let mut iterator = VdaIterator::new(log_data);
+        let mut iterator = VdaIterator::new(log_data, b"uagv/v1/");
         assert_eq!(iterator.next(), Some(&b"uagv/v1/first..."[..]));
         assert_eq!(iterator.next(), Some(&b"uagv/v1/second"[..]));
         assert_eq!(iterator.next(), None);
@@ -141,7 +154,7 @@ mod tests {
     #[test]
     fn test_vda_iterator_empty_input() {
         let log_data = b"";
-        let mut iterator = VdaIterator::new(log_data);
+        let mut iterator = VdaIterator::new(log_data, b"uagv/v1/");
         assert_eq!(iterator.next(), None);
     }
 
@@ -151,5 +164,15 @@ mod tests {
         assert_eq!(parse_version("1.0.0"), (1 << 24));
         assert_eq!(parse_version("0.0.0"), 0);
         assert_eq!(parse_version("invalid"), 0);
+    }
+
+    #[test]
+    fn test_vda_iterator_custom_root_topic() {
+        let log_data = b"preamble...fleet/v2/first...trailing...fleet/v2/second...end";
+        let mut iterator = VdaIterator::new(log_data, b"fleet/v2/");
+
+        assert_eq!(iterator.next(), Some(&b"fleet/v2/first...trailing..."[..]));
+        assert_eq!(iterator.next(), Some(&b"fleet/v2/second...end"[..]));
+        assert_eq!(iterator.next(), None);
     }
 }

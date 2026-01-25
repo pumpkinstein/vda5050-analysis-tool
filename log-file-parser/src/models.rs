@@ -5,6 +5,17 @@ use vda5050_data_types::{
     visualization::Visualization,
 };
 
+// Fixed message types used by the index Enum column.
+vda5050_data_types::fixed_string_enum! {
+    pub(crate) enum MessageType {
+        State => "state",
+        Visualization => "visualization",
+        Connection => "connection",
+        Order => "order",
+        InstantActions => "instantActions",
+    }
+}
+
 /// Minimal metadata extracted from the MQTT topic
 #[derive(Debug, Clone)]
 pub(crate) struct TopicMetadata {
@@ -35,28 +46,4 @@ pub(crate) enum ParsedMessage {
         topic: TopicMetadata,
         data: InstantActions,
     },
-}
-
-impl ParsedMessage {
-    /// Get the message type as a string
-    pub(crate) fn msg_type(&self) -> &str {
-        match self {
-            ParsedMessage::State { .. } => "state",
-            ParsedMessage::Visualization { .. } => "visualization",
-            ParsedMessage::Connection { .. } => "connection",
-            ParsedMessage::Order { .. } => "order",
-            ParsedMessage::InstantActions { .. } => "instantActions",
-        }
-    }
-
-    /// Get the topic metadata from any message variant
-    pub(crate) fn topic(&self) -> &TopicMetadata {
-        match self {
-            ParsedMessage::State { topic, .. } => topic,
-            ParsedMessage::Visualization { topic, .. } => topic,
-            ParsedMessage::Connection { topic, .. } => topic,
-            ParsedMessage::Order { topic, .. } => topic,
-            ParsedMessage::InstantActions { topic, .. } => topic,
-        }
-    }
 }

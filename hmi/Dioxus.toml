@@ -3,7 +3,7 @@
 [web.app]
 
 # HTML title tag content
-title = "vda5050-analysis-tool2"
+title = "VDA5050 Analysis Tool"
 
 # include `assets` in web platform
 [web.resource]

@@ -16,7 +16,7 @@ pub struct Visualization {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(
-        deserialize_with = "deserialize_optional_timestamp",
+        deserialize_with = "crate::common::deserialize_optional_timestamp",
         serialize_with = "serialize_optional_timestamp"
     )]
     pub timestamp: Option<i64>,
@@ -35,20 +35,6 @@ pub struct Visualization {
     /// The AGV's velocity in vehicle coordinates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub velocity: Option<Velocity>,
-}
-
-/// Custom deserializer for optional timestamps
-fn deserialize_optional_timestamp<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let opt: Option<String> = Option::deserialize(deserializer)?;
-    opt.map(|s| {
-        chrono::DateTime::parse_from_rfc3339(&s)
-            .map(|dt| dt.timestamp_micros())
-            .map_err(serde::de::Error::custom)
-    })
-    .transpose()
 }
 
 /// Custom serializer for optional timestamps

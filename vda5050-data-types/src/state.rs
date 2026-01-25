@@ -116,24 +116,20 @@ pub enum MapStatus {
     Disabled,
 }
 
-/// The operating mode of the AGV.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum OperatingMode {
-    /// The AGV is operating in automatic mode.
-    #[serde(rename = "AUTOMATIC")]
-    Automatic,
-    /// The AGV is operating in semi-automatic mode.
-    #[serde(rename = "SEMIAUTOMATIC")]
-    SemiAutomatic,
-    /// The AGV is operating in manual mode.
-    #[serde(rename = "MANUAL")]
-    Manual,
-    /// The AGV is in service mode.
-    #[serde(rename = "SERVICE")]
-    Service,
-    /// The AGV is in teach-in mode.
-    #[serde(rename = "TEACHIN")]
-    TeachIn,
+fixed_string_enum! {
+    /// The operating mode of the AGV.
+    pub enum OperatingMode {
+        /// The AGV is operating in automatic mode.
+        Automatic => "AUTOMATIC",
+        /// The AGV is operating in semi-automatic mode.
+        SemiAutomatic => "SEMIAUTOMATIC",
+        /// The AGV is operating in manual mode.
+        Manual => "MANUAL",
+        /// The AGV is in service mode.
+        Service => "SERVICE",
+        /// The AGV is in teach-in mode.
+        TeachIn => "TEACHIN",
+    }
 }
 
 /// The state of a node.

@@ -14,18 +14,16 @@ pub struct Connection {
     pub connection_state: ConnectionState,
 }
 
-/// The state of the connection.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum ConnectionState {
-    /// The AGV is online and connected to the master control.
-    #[serde(rename = "ONLINE")]
-    Online,
-    /// The AGV is offline and not connected to the master control.
-    #[serde(rename = "OFFLINE")]
-    Offline,
-    /// The connection to the AGV was lost.
-    #[serde(rename = "CONNECTIONBROKEN")]
-    ConnectionBroken,
+fixed_string_enum! {
+    /// The state of the connection.
+    pub enum ConnectionState {
+        /// The AGV is online and connected to the master control.
+        Online => "ONLINE",
+        /// The AGV is offline and not connected to the master control.
+        Offline => "OFFLINE",
+        /// The connection to the AGV was lost.
+        ConnectionBroken => "CONNECTIONBROKEN",
+    }
 }
 
 #[cfg(test)]

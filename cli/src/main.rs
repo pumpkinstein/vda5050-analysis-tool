@@ -3,7 +3,11 @@ use clap::Parser;
 use polars::prelude::*;
 use std::{path::PathBuf, time::Instant};
 
-use log_file_parser::process_log_file;
+use log_file_parser::{DEFAULT_ROOT_TOPIC, process_log_file};
+
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 /// A high-performance VDA 5050 log analysis tool.
 #[derive(Parser, Debug)]
@@ -13,12 +17,16 @@ struct Args {
     #[arg(short, long)]
     file: PathBuf,
 
+    /// Root MQTT topic used by the VDA 5050 messages
+    #[arg(long, default_value = DEFAULT_ROOT_TOPIC)]
+    root_topic: String,
+
     /// Show example parse failures for debugging
     #[arg(short, long)]
     verbose: bool,
 
-    /// Batch size for parallel processing (default: 100,000)
-    #[arg(short, long, default_value = "100000")]
+    /// Batch size for parallel processing (default: 4,000)
+    #[arg(short, long, default_value = "4000")]
     batch_size: usize,
 }
 
@@ -27,7 +35,7 @@ fn main() -> Result<()> {
     println!("Parsing file: {:?}...", args.file);
     let start_time = Instant::now();
 
-    let result = process_log_file(&args.file, args.batch_size, args.verbose)?;
+    let result = process_log_file(&args.file, &args.root_topic, args.batch_size, args.verbose)?;
 
     let processing_duration = start_time.elapsed();
 
@@ -37,6 +45,25 @@ fn main() -> Result<()> {
     println!(
         "Processed {} records in {:.2?}. (Ignored {} entries)",
         num_parsed, processing_duration, num_failed
+    );
+
+    println!("Ingestion timing:");
+    println!("  mmap setup: {:.2?}", result.timings.mmap_setup);
+    println!(
+        "  delimiter scanning: {:.2?}",
+        result.timings.delimiter_scanning
+    );
+    println!(
+        "  JSON parsing and builder appends: {:.2?}",
+        result.timings.parsing_and_builder_appends
+    );
+    println!(
+        "  per-batch DataFrame construction: {:.2?}",
+        result.timings.batch_dataframe_construction
+    );
+    println!(
+        "  final DataFrame concatenation: {:.2?}",
+        result.timings.final_dataframe_concatenation
     );
 
     // Show summary of parse failures by message type
@@ -71,9 +98,6 @@ fn main() -> Result<()> {
     let conn_df = result.dataframes.get("connection").unwrap();
     let order_df = result.dataframes.get("order").unwrap();
     let ia_df = result.dataframes.get("instant_actions").unwrap();
-
-    let build_duration = start_time.elapsed() - processing_duration;
-    println!("DataFrames built in {:.2?}.", build_duration);
 
     // 5. Display results
     println!("\n=== Index DataFrame ===");
@@ -158,7 +182,10 @@ fn main() -> Result<()> {
             .value_counts(true, false, "count".into(), false)?
     );
 
-    println!("\nTotal processing time: {:.2?}", start_time.elapsed());
+    println!(
+        "\nEnd-to-end CLI time (including reporting): {:.2?}",
+        start_time.elapsed()
+    );
 
     Ok(())
 }
