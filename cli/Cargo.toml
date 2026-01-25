@@ -7,21 +7,7 @@ edition = "2024"
 vda5050-data-types = { path = "../vda5050-data-types"}
 log-file-parser = { path = "../log-file-parser"}
 
-serde = { workspace = true }
-serde_json = { workspace = true }
-simd-json = { workspace = true } # Optional: Requires RUSTFLAGS="-C target-feature=+avx2"
-
-# Fast I/O and Byte manipulation
-memmap2 = { workspace = true }
-bstr = { workspace = true }
-nom = { workspace = true }
-
-# Parallelism
-rayon = { workspace = true }
-
 # Data Analysis
-polars = { workspace = true }
-anyhow = "1.0.100"
-speedate = "0.17.0"
+anyhow = { workspace = true }
 clap = { version = "4.5.54", features = ["derive"] }
-chrono = { version = "0.4.43", features = ["serde"] }
+polars = { workspace = true }

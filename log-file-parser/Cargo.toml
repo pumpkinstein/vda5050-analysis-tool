@@ -20,7 +20,5 @@ rayon = { workspace = true }
 
 # Data Analysis
 polars = { workspace = true }
-anyhow = "1.0.100"
-speedate = "0.17.0"
-clap = { version = "4.5.54", features = ["derive"] }
-chrono = { version = "0.4.43", features = ["serde"] }
+anyhow = { workspace = true }
+chrono = { workspace = true }
