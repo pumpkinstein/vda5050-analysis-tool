@@ -1,11 +1,13 @@
-pub mod models;
+pub mod builders;
 pub mod io;
-pub mod parser;
+pub mod models;
+pub mod process;
 
 use crate::{
-    models::ParsedMessage,
+    builders::AllBuilders,
     io::{VdaIterator, parse_version},
-    parser::{builders::AllBuilders, process::parse_record},
+    models::ParsedMessage,
+    process::parse_record,
 };
 use anyhow::Result;
 use polars::prelude::*;

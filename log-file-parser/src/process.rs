@@ -1,7 +1,7 @@
 //! Contains the core parsing logic for VDA 5050 log entries.
 
-use crate::models::{ParsedMessage, TopicMetadata};
 use crate::io::parse_topic;
+use crate::models::{ParsedMessage, TopicMetadata};
 use anyhow::Result;
 use vda5050_data_types::{
     connection::Connection, instant_actions::InstantActions, order::Order, state::State,
