@@ -4,6 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+vda5050-data-types = { path = "../vda5050-data-types"}
+
 serde = { workspace = true }
 serde_json = { workspace = true }
-simd-json = { workspace = true }
+simd-json = { workspace = true } # Optional: Requires RUSTFLAGS="-C target-feature=+avx2"
+
+# Fast I/O and Byte manipulation
+memmap2 = { workspace = true }
+bstr = { workspace = true }
+nom = { workspace = true }
+
+# Parallelism
+rayon = { workspace = true }
+
+# Data Analysis
+polars = { workspace = true }
+anyhow = "1.0.100"
+speedate = "0.17.0"
+clap = { version = "4.5.54", features = ["derive"] }
+chrono = { version = "0.4.43", features = ["serde"] }

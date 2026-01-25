@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 vda5050-data-types = { path = "../vda5050-data-types"}
+log-file-parser = { path = "../log-file-parser"}
 
 serde = { workspace = true }
 serde_json = { workspace = true }

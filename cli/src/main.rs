@@ -5,7 +5,8 @@ use rayon::prelude::*;
 use std::{collections::HashMap, fs::File, path::PathBuf, sync::Mutex, time::Instant};
 
 mod parser;
-use parser::{io::VdaIterator, models::ParsedRecord, process::parse_record};
+use log_file_parser::mqtt_log_io::VdaIterator;
+use parser::{models::ParsedRecord, process::parse_record};
 
 /// A high-performance VDA 5050 log analysis tool.
 #[derive(Parser, Debug)]

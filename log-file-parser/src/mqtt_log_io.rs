@@ -1,11 +1,12 @@
 //! Contains the logic for file I/O, specifically the custom iterator for splitting VDA 5050 log files.
+//! Log file must have been created by MQTT client "mosquitto" by subscribing to all topics
 use bstr::ByteSlice;
 
 /// An iterator that splits a byte slice containing VDA 5050 log data into individual message records.
 ///
 /// VDA 5050 logs can be multiline and don't have a consistent line-based separator. However,
-/// each VDA 5050 MQTT message topic starts with the byte pattern `uagv/v1/`. This iterator
-/// uses that pattern as a delimiter to find the start of each message.
+/// each VDA 5050 MQTT message topic starts with the byte pattern known as root topic. E.g. `uagv/v1/`.
+/// This iterator uses that pattern as a delimiter to find the start of each message.
 pub struct VdaIterator<'a> {
     /// The full data slice to iterate over.
     data: &'a [u8],
@@ -20,6 +21,7 @@ impl<'a> VdaIterator<'a> {
     /// Creates a new `VdaIterator` for the given data slice.
     pub fn new(data: &'a [u8]) -> Self {
         // The delimiter that signifies the start of a VDA 5050 message.
+        // TOOD: pass this as argument
         const VDA5050_DELIMITER: &[u8] = b"uagv/v1/";
 
         let mut indices = Box::new(data.find_iter(VDA5050_DELIMITER));
