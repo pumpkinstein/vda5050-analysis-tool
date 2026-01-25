@@ -1,15 +1,15 @@
 //! Contains the core parsing logic for VDA 5050 log entries.
 
-use crate::parser::models::ParsedRecord;
+use crate::parser::models::{ParsedMessage, TopicMetadata};
 use anyhow::Result;
-use log_file_parser::mqtt_log_io::{parse_topic, parse_version};
+use log_file_parser::mqtt_log_io::parse_topic;
 use vda5050_data_types::{
     connection::Connection, instant_actions::InstantActions, order::Order, state::State,
     visualization::Visualization,
 };
 
-/// Parses a complete log entry slice (`&[u8]`) into a `ParsedRecord`.
-pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
+/// Parses a complete log entry slice (`&[u8]`) into a `ParsedMessage`.
+pub fn parse_record(input: &[u8]) -> Result<ParsedMessage> {
     // The VdaIterator gives us slices that start with `uagv/v1/`. We strip it before topic parsing.
     let input = input
         .strip_prefix(b"uagv/v1/")
@@ -18,26 +18,21 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
     let (json_payload, topic) =
         parse_topic(input).map_err(|e| anyhow::anyhow!("Topic parsing failed: {}", e))?;
 
-    let mut record = ParsedRecord {
+    let topic_meta = TopicMetadata {
         manufacturer: topic.manufacturer.to_string(),
         serial_number: topic.serial_number.to_string(),
-        msg_type: topic.msg_type.to_string(),
-        ..Default::default()
     };
 
     // Use simd-json for faster parsing. It requires a mutable slice, so we make a copy.
-    // Parse directly to typed structs for better performance.
     let mut json_bytes = json_payload.to_vec();
 
-    match topic.msg_type {
+    let message = match topic.msg_type {
         "state" => {
             let state: State = simd_json::serde::from_slice(&mut json_bytes)?;
-            record.header_id = state.header.header_id;
-            record.timestamp_us = state.header.timestamp;
-            record.version_packed = parse_version(&state.header.version);
-            record.operating_mode = Some(format!("{:?}", state.operating_mode).to_uppercase());
-            record.battery_charge = Some(state.battery_state.battery_charge);
-            record.has_errors = Some(!state.errors.is_empty());
+            ParsedMessage::State {
+                topic: topic_meta,
+                data: state,
+            }
         }
         "visualization" => {
             let viz: Visualization = simd_json::serde::from_slice(&mut json_bytes)?;
@@ -45,60 +40,41 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
             // Per VDA5050 schema, all fields in visualization are optional.
             // However, for data analysis purposes, we need at least header_id and timestamp.
             // Return an error to skip visualization messages without minimum required metadata.
-            let header_id = viz.header_id.ok_or_else(|| {
+            viz.header_id.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("Visualization missing headerId - skipping incomplete record")
             })?;
-            let timestamp = viz.timestamp.ok_or_else(|| {
+            viz.timestamp.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("Visualization missing timestamp - skipping incomplete record")
             })?;
-            let version = viz.version.ok_or_else(|| {
+            viz.version.as_ref().ok_or_else(|| {
                 anyhow::anyhow!("Visualization missing version - skipping incomplete record")
             })?;
 
-            record.header_id = header_id;
-            record.timestamp_us = timestamp;
-            record.version_packed = parse_version(&version);
-
-            // Override manufacturer and serial_number from the message payload if available
-            if let Some(mfr) = viz.manufacturer {
-                record.manufacturer = mfr;
-            }
-            if let Some(sn) = viz.serial_number {
-                record.serial_number = sn;
-            }
-
-            if let Some(pos) = viz.agv_position {
-                record.x = Some(pos.x);
-                record.y = Some(pos.y);
-                record.theta = Some(pos.theta);
-                record.map_id = Some(pos.map_id);
+            ParsedMessage::Visualization {
+                topic: topic_meta,
+                data: viz,
             }
         }
         "connection" => {
             let conn: Connection = simd_json::serde::from_slice(&mut json_bytes)?;
-            record.header_id = conn.header.header_id;
-            record.timestamp_us = conn.header.timestamp;
-            record.version_packed = parse_version(&conn.header.version);
-            record.operating_mode = Some(format!("{:?}", conn.connection_state).to_uppercase());
+            ParsedMessage::Connection {
+                topic: topic_meta,
+                data: conn,
+            }
         }
         "order" => {
             let order: Order = simd_json::serde::from_slice(&mut json_bytes)?;
-            record.header_id = order.header.header_id;
-            record.timestamp_us = order.header.timestamp;
-            record.version_packed = parse_version(&order.header.version);
-
-            // Store order-specific information in operating_mode field
-            record.operating_mode = Some(format!("ORDER:{}", order.order_id));
+            ParsedMessage::Order {
+                topic: topic_meta,
+                data: order,
+            }
         }
         "instantActions" => {
             let instant_actions: InstantActions = simd_json::serde::from_slice(&mut json_bytes)?;
-            record.header_id = instant_actions.header.header_id;
-            record.timestamp_us = instant_actions.header.timestamp;
-            record.version_packed = parse_version(&instant_actions.header.version);
-
-            // Store number of instant actions in operating_mode field
-            record.operating_mode =
-                Some(format!("INSTANT_ACTIONS:{}", instant_actions.actions.len()));
+            ParsedMessage::InstantActions {
+                topic: topic_meta,
+                data: instant_actions,
+            }
         }
         _ => {
             return Err(anyhow::anyhow!(
@@ -106,10 +82,11 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
                 topic.msg_type
             ));
         }
-    }
+    };
 
-    Ok(record)
+    Ok(message)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,59 +94,86 @@ mod tests {
     #[test]
     fn test_parse_record_state() {
         let log_entry = br#"uagv/v1/test-mfr/test-sn/state {"headerId":1,"timestamp":"2024-05-20T14:35:12.123Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"test-sn","orderId":"","orderUpdateId":0,"lastNodeId":"","lastNodeSequenceId":0,"driving":false,"operatingMode":"AUTOMATIC","nodeStates":[],"edgeStates":[],"actionStates":[],"batteryState":{"batteryCharge":88.5,"charging":false},"errors":[],"safetyState":{"eStop":"NONE","fieldViolation":false}}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.manufacturer, "test-mfr");
-        assert_eq!(record.serial_number, "test-sn");
-        assert_eq!(record.msg_type, "state");
-        assert_eq!(record.header_id, 1);
-        assert_eq!(record.version_packed, 2 << 24);
-        assert_eq!(record.operating_mode, Some("AUTOMATIC".to_string()));
-        assert_eq!(record.has_errors, Some(false));
-        assert_eq!(record.battery_charge, Some(88.5));
-        assert!(record.x.is_none());
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::State { topic, data } => {
+                assert_eq!(topic.manufacturer, "test-mfr");
+                assert_eq!(topic.serial_number, "test-sn");
+                assert_eq!(data.header.header_id, 1);
+                assert_eq!(data.battery_state.battery_charge, 88.5);
+                assert!(data.errors.is_empty());
+            }
+            _ => panic!("Expected State message"),
+        }
     }
 
     #[test]
     fn test_parse_record_visualization() {
         let log_entry = br#"uagv/v1/test-mfr/test-sn/visualization {"headerId":2,"timestamp":"2024-05-20T15:00:00Z","version":"2.1.0","manufacturer":"test-mfr","serialNumber":"test-sn","agvPosition":{"x":1.0,"y":2.5,"theta":1.57,"mapId":"map1","positionInitialized":true}}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.manufacturer, "test-mfr");
-        assert_eq!(record.header_id, 2);
-        assert_eq!(record.version_packed, (2 << 24) | (1 << 16));
-        assert_eq!(record.x, Some(1.0));
-        assert_eq!(record.y, Some(2.5));
-        assert_eq!(record.theta, Some(1.57));
-        assert_eq!(record.map_id, Some("map1".to_string()));
-        assert!(record.operating_mode.is_none());
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::Visualization { topic, data } => {
+                assert_eq!(topic.manufacturer, "test-mfr");
+                assert_eq!(topic.serial_number, "test-sn");
+                assert_eq!(data.header_id, Some(2));
+
+                let pos = data.agv_position.as_ref().unwrap();
+                assert_eq!(pos.x, 1.0);
+                assert_eq!(pos.y, 2.5);
+                assert_eq!(pos.theta, 1.57);
+                assert_eq!(pos.map_id, "map1");
+            }
+            _ => panic!("Expected Visualization message"),
+        }
     }
 
     #[test]
     fn test_parse_record_connection() {
         let log_entry = br#"uagv/v1/Jungheinrich/2/connection {"headerId":5,"timestamp":"2025-04-12T06:19:11.012598Z","version":"1.1.0","manufacturer":"Jungheinrich","serialNumber":"2","connectionState":"ONLINE"}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.manufacturer, "Jungheinrich");
-        assert_eq!(record.serial_number, "2");
-        assert_eq!(record.msg_type, "connection");
-        assert_eq!(record.header_id, 5);
-        assert_eq!(record.version_packed, (1 << 24) | (1 << 16));
-        assert_eq!(record.operating_mode, Some("ONLINE".to_string()));
-        assert!(record.x.is_none());
-        assert!(record.battery_charge.is_none());
-        assert!(record.has_errors.is_none());
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::Connection { topic, data } => {
+                assert_eq!(topic.manufacturer, "Jungheinrich");
+                assert_eq!(topic.serial_number, "2");
+                assert_eq!(data.header.header_id, 5);
+            }
+            _ => panic!("Expected Connection message"),
+        }
     }
 
     #[test]
     fn test_parse_record_connection_broken() {
         let log_entry = br#"uagv/v1/Jungheinrich/2/connection {"headerId":4,"timestamp":"2025-04-12T06:19:07.242319Z","version":"1.1.0","manufacturer":"Jungheinrich","serialNumber":"2","connectionState":"CONNECTIONBROKEN"}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.operating_mode, Some("CONNECTIONBROKEN".to_string()));
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::Connection { data, .. } => {
+                assert_eq!(
+                    format!("{:?}", data.connection_state).to_uppercase(),
+                    "CONNECTIONBROKEN"
+                );
+            }
+            _ => panic!("Expected Connection message"),
+        }
     }
 
     #[test]
     fn test_parse_record_connection_offline() {
         let log_entry = br#"uagv/v1/Test/1/connection {"headerId":1,"timestamp":"2025-04-12T06:19:07.242319Z","version":"1.1.0","manufacturer":"Test","serialNumber":"1","connectionState":"OFFLINE"}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.operating_mode, Some("OFFLINE".to_string()));
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::Connection { data, .. } => {
+                assert_eq!(
+                    format!("{:?}", data.connection_state).to_uppercase(),
+                    "OFFLINE"
+                );
+            }
+            _ => panic!("Expected Connection message"),
+        }
     }
 
     #[test]
@@ -209,30 +213,41 @@ mod tests {
     fn test_parse_record_visualization_with_payload_metadata() {
         // Test that manufacturer and serial_number are extracted from the visualization payload
         let log_entry = br#"uagv/v1/topic-mfr/topic-sn/visualization {"headerId":3,"timestamp":"2024-05-20T15:00:00Z","version":"2.1.0","manufacturer":"payload-mfr","serialNumber":"payload-sn","agvPosition":{"x":5.0,"y":10.0,"theta":0.0,"mapId":"map2","positionInitialized":true}}"#;
-        let record = parse_record(log_entry).unwrap();
+        let message = parse_record(log_entry).unwrap();
 
-        // Should use manufacturer and serial_number from the message payload, not the topic
-        assert_eq!(record.manufacturer, "payload-mfr");
-        assert_eq!(record.serial_number, "payload-sn");
-        assert_eq!(record.msg_type, "visualization");
-        assert_eq!(record.header_id, 3);
-        assert_eq!(record.x, Some(5.0));
-        assert_eq!(record.y, Some(10.0));
-        assert_eq!(record.theta, Some(0.0));
-        assert_eq!(record.map_id, Some("map2".to_string()));
+        match message {
+            ParsedMessage::Visualization { topic, data } => {
+                // Topic still contains the topic-level metadata
+                assert_eq!(topic.manufacturer, "topic-mfr");
+                assert_eq!(topic.serial_number, "topic-sn");
+
+                // But payload contains the payload-level metadata
+                assert_eq!(data.manufacturer, Some("payload-mfr".to_string()));
+                assert_eq!(data.serial_number, Some("payload-sn".to_string()));
+
+                let pos = data.agv_position.as_ref().unwrap();
+                assert_eq!(pos.x, 5.0);
+                assert_eq!(pos.y, 10.0);
+            }
+            _ => panic!("Expected Visualization message"),
+        }
     }
 
     #[test]
     fn test_parse_record_visualization_without_payload_metadata() {
         // Test that topic manufacturer and serial_number are used as fallback
         let log_entry = br#"uagv/v1/topic-mfr/topic-sn/visualization {"headerId":4,"timestamp":"2024-05-20T15:00:00Z","version":"2.1.0","agvPosition":{"x":7.5,"y":12.5,"theta":3.14,"mapId":"map3","positionInitialized":false}}"#;
-        let record = parse_record(log_entry).unwrap();
+        let message = parse_record(log_entry).unwrap();
 
-        // Should use manufacturer and serial_number from the topic when not in payload
-        assert_eq!(record.manufacturer, "topic-mfr");
-        assert_eq!(record.serial_number, "topic-sn");
-        assert_eq!(record.msg_type, "visualization");
-        assert_eq!(record.header_id, 4);
+        match message {
+            ParsedMessage::Visualization { topic, data } => {
+                assert_eq!(topic.manufacturer, "topic-mfr");
+                assert_eq!(topic.serial_number, "topic-sn");
+                assert!(data.manufacturer.is_none());
+                assert!(data.serial_number.is_none());
+            }
+            _ => panic!("Expected Visualization message"),
+        }
     }
 
     #[test]
@@ -273,46 +288,66 @@ mod tests {
     #[test]
     fn test_parse_record_order() {
         let log_entry = br#"uagv/v1/test-mfr/agv-001/order {"headerId":10,"timestamp":"2024-05-20T10:00:00Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"agv-001","orderId":"order-123","orderUpdateId":0,"nodes":[{"nodeId":"node1","sequenceId":0,"released":true,"actions":[]}],"edges":[]}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.manufacturer, "test-mfr");
-        assert_eq!(record.serial_number, "agv-001");
-        assert_eq!(record.msg_type, "order");
-        assert_eq!(record.header_id, 10);
-        assert_eq!(record.version_packed, 2 << 24);
-        assert_eq!(record.operating_mode, Some("ORDER:order-123".to_string()));
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::Order { topic, data } => {
+                assert_eq!(topic.manufacturer, "test-mfr");
+                assert_eq!(topic.serial_number, "agv-001");
+                assert_eq!(data.header.header_id, 10);
+                assert_eq!(data.order_id, "order-123");
+            }
+            _ => panic!("Expected Order message"),
+        }
     }
 
     #[test]
     fn test_parse_record_order_with_edges() {
         let log_entry = br#"uagv/v1/robot-corp/robot-5/order {"headerId":20,"timestamp":"2024-05-20T11:00:00Z","version":"2.1.0","manufacturer":"robot-corp","serialNumber":"robot-5","orderId":"order-456","orderUpdateId":2,"nodes":[{"nodeId":"n1","sequenceId":0,"released":true,"actions":[]},{"nodeId":"n2","sequenceId":2,"released":true,"actions":[]}],"edges":[{"edgeId":"e1","sequenceId":1,"released":true,"startNodeId":"n1","endNodeId":"n2","actions":[]}]}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.manufacturer, "robot-corp");
-        assert_eq!(record.serial_number, "robot-5");
-        assert_eq!(record.msg_type, "order");
-        assert_eq!(record.header_id, 20);
-        assert_eq!(record.operating_mode, Some("ORDER:order-456".to_string()));
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::Order { topic, data } => {
+                assert_eq!(topic.manufacturer, "robot-corp");
+                assert_eq!(topic.serial_number, "robot-5");
+                assert_eq!(data.header.header_id, 20);
+                assert_eq!(data.order_id, "order-456");
+                assert_eq!(data.nodes.len(), 2);
+                assert_eq!(data.edges.len(), 1);
+            }
+            _ => panic!("Expected Order message"),
+        }
     }
 
     #[test]
     fn test_parse_record_instant_actions_empty() {
         let log_entry = br#"uagv/v1/test-mfr/agv-001/instantActions {"headerId":30,"timestamp":"2024-05-20T12:00:00Z","version":"2.0.0","manufacturer":"test-mfr","serialNumber":"agv-001","actions":[]}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.manufacturer, "test-mfr");
-        assert_eq!(record.serial_number, "agv-001");
-        assert_eq!(record.msg_type, "instantActions");
-        assert_eq!(record.header_id, 30);
-        assert_eq!(record.version_packed, 2 << 24);
-        assert_eq!(record.operating_mode, Some("INSTANT_ACTIONS:0".to_string()));
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::InstantActions { topic, data } => {
+                assert_eq!(topic.manufacturer, "test-mfr");
+                assert_eq!(topic.serial_number, "agv-001");
+                assert_eq!(data.header.header_id, 30);
+                assert_eq!(data.actions.len(), 0);
+            }
+            _ => panic!("Expected InstantActions message"),
+        }
     }
 
     #[test]
     fn test_parse_record_instant_actions_with_actions() {
         let log_entry = br#"uagv/v1/robot-corp/robot-7/instantActions {"headerId":40,"timestamp":"2024-05-20T13:00:00Z","version":"2.1.0","manufacturer":"robot-corp","serialNumber":"robot-7","actions":[{"actionId":"pause-1","actionType":"startPause","blockingType":"HARD"},{"actionId":"pause-2","actionType":"stopPause","blockingType":"HARD"}]}"#;
-        let record = parse_record(log_entry).unwrap();
-        assert_eq!(record.manufacturer, "robot-corp");
-        assert_eq!(record.serial_number, "robot-7");
-        assert_eq!(record.msg_type, "instantActions");
-        assert_eq!(record.header_id, 40);
-        assert_eq!(record.operating_mode, Some("INSTANT_ACTIONS:2".to_string()));
+        let message = parse_record(log_entry).unwrap();
+
+        match message {
+            ParsedMessage::InstantActions { topic, data } => {
+                assert_eq!(topic.manufacturer, "robot-corp");
+                assert_eq!(topic.serial_number, "robot-7");
+                assert_eq!(data.header.header_id, 40);
+                assert_eq!(data.actions.len(), 2);
+            }
+            _ => panic!("Expected InstantActions message"),
+        }
     }
 }

@@ -5,8 +5,8 @@ use rayon::prelude::*;
 use std::{collections::HashMap, fs::File, path::PathBuf, sync::Mutex, time::Instant};
 
 mod parser;
-use log_file_parser::mqtt_log_io::VdaIterator;
-use parser::{models::ParsedRecord, process::parse_record};
+use log_file_parser::mqtt_log_io::{VdaIterator, parse_version};
+use parser::{models::ParsedMessage, process::parse_record};
 
 /// A high-performance VDA 5050 log analysis tool.
 #[derive(Parser, Debug)]
@@ -47,11 +47,11 @@ fn main() -> Result<()> {
     let parse_failures: Mutex<HashMap<String, usize>> = Mutex::new(HashMap::new());
     let parse_examples: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 
-    let records: Vec<ParsedRecord> = chunks
+    let messages: Vec<ParsedMessage> = chunks
         .into_par_iter()
         .filter_map(|chunk| {
             match parse_record(chunk) {
-                Ok(record) => Some(record),
+                Ok(message) => Some(message),
                 Err(e) => {
                     // Extract message type from topic for failure statistics
                     let chunk_str = std::str::from_utf8(chunk).unwrap_or("");
@@ -87,8 +87,9 @@ fn main() -> Result<()> {
             }
         })
         .collect();
+
     let parsing_duration = start_time.elapsed();
-    let num_parsed = records.len();
+    let num_parsed = messages.len();
     let num_failed = total_chunks - num_parsed;
 
     println!(
@@ -121,10 +122,11 @@ fn main() -> Result<()> {
             }
         }
     }
+
     println!("Building DataFrames...");
 
-    // 4. Split records by message type and build separate DataFrames
-    // First, create index DataFrame with common fields
+    // 4. Separate messages by type and build DataFrames
+    // Index DataFrame - common fields for all messages
     let mut index_row_ids = Vec::with_capacity(num_parsed);
     let mut index_manufacturers = Vec::with_capacity(num_parsed);
     let mut index_serial_numbers = Vec::with_capacity(num_parsed);
@@ -154,47 +156,102 @@ fn main() -> Result<()> {
     let mut ia_row_ids = Vec::new();
     let mut ia_action_counts = Vec::new();
 
-    // Process records and split by type
-    for (row_id, record) in records.into_iter().enumerate() {
+    // Process messages and split by type
+    for (row_id, message) in messages.into_iter().enumerate() {
         let row_id = row_id as u64;
+        let topic = message.topic();
+        let msg_type = message.msg_type();
 
-        // Add to index
-        index_row_ids.push(row_id);
-        index_manufacturers.push(record.manufacturer);
-        index_serial_numbers.push(record.serial_number.clone());
-        index_msg_types.push(record.msg_type.clone());
-        index_header_ids.push(record.header_id);
-        index_timestamps.push(record.timestamp_us);
-        index_versions.push(record.version_packed);
+        // Extract common header fields and add to index
+        match &message {
+            ParsedMessage::State { data, .. } => {
+                index_row_ids.push(row_id);
+                index_manufacturers.push(topic.manufacturer.clone());
+                index_serial_numbers.push(topic.serial_number.clone());
+                index_msg_types.push(msg_type.to_string());
+                index_header_ids.push(data.header.header_id);
+                index_timestamps.push(data.header.timestamp);
+                index_versions.push(parse_version(&data.header.version));
 
-        // Add to type-specific vectors
-        match record.msg_type.as_str() {
-            "state" => {
+                // Add state-specific data
                 state_row_ids.push(row_id);
-                state_operating_modes.push(record.operating_mode);
-                state_battery_charges.push(record.battery_charge);
-                state_has_errors.push(record.has_errors);
+                state_operating_modes
+                    .push(Some(format!("{:?}", data.operating_mode).to_uppercase()));
+                state_battery_charges.push(Some(data.battery_state.battery_charge));
+                state_has_errors.push(Some(!data.errors.is_empty()));
             }
-            "visualization" => {
+            ParsedMessage::Visualization { data, .. } => {
+                // Use manufacturer/serial from payload if available, otherwise from topic
+                let manufacturer = data
+                    .manufacturer
+                    .clone()
+                    .unwrap_or_else(|| topic.manufacturer.clone());
+                let serial_number = data
+                    .serial_number
+                    .clone()
+                    .unwrap_or_else(|| topic.serial_number.clone());
+
+                index_row_ids.push(row_id);
+                index_manufacturers.push(manufacturer);
+                index_serial_numbers.push(serial_number);
+                index_msg_types.push(msg_type.to_string());
+                index_header_ids.push(data.header_id.unwrap());
+                index_timestamps.push(data.timestamp.unwrap());
+                index_versions.push(parse_version(&data.version.as_ref().unwrap()));
+
+                // Add visualization-specific data
                 viz_row_ids.push(row_id);
-                viz_xs.push(record.x);
-                viz_ys.push(record.y);
-                viz_thetas.push(record.theta);
-                viz_map_ids.push(record.map_id);
+                if let Some(pos) = &data.agv_position {
+                    viz_xs.push(Some(pos.x));
+                    viz_ys.push(Some(pos.y));
+                    viz_thetas.push(Some(pos.theta));
+                    viz_map_ids.push(Some(pos.map_id.clone()));
+                } else {
+                    viz_xs.push(None);
+                    viz_ys.push(None);
+                    viz_thetas.push(None);
+                    viz_map_ids.push(None);
+                }
             }
-            "connection" => {
+            ParsedMessage::Connection { data, .. } => {
+                index_row_ids.push(row_id);
+                index_manufacturers.push(topic.manufacturer.clone());
+                index_serial_numbers.push(topic.serial_number.clone());
+                index_msg_types.push(msg_type.to_string());
+                index_header_ids.push(data.header.header_id);
+                index_timestamps.push(data.header.timestamp);
+                index_versions.push(parse_version(&data.header.version));
+
+                // Add connection-specific data
                 conn_row_ids.push(row_id);
-                conn_states.push(record.operating_mode);
+                conn_states.push(Some(format!("{:?}", data.connection_state).to_uppercase()));
             }
-            "order" => {
+            ParsedMessage::Order { data, .. } => {
+                index_row_ids.push(row_id);
+                index_manufacturers.push(topic.manufacturer.clone());
+                index_serial_numbers.push(topic.serial_number.clone());
+                index_msg_types.push(msg_type.to_string());
+                index_header_ids.push(data.header.header_id);
+                index_timestamps.push(data.header.timestamp);
+                index_versions.push(parse_version(&data.header.version));
+
+                // Add order-specific data
                 order_row_ids.push(row_id);
-                order_ids.push(record.operating_mode);
+                order_ids.push(Some(data.order_id.clone()));
             }
-            "instantActions" => {
+            ParsedMessage::InstantActions { data, .. } => {
+                index_row_ids.push(row_id);
+                index_manufacturers.push(topic.manufacturer.clone());
+                index_serial_numbers.push(topic.serial_number.clone());
+                index_msg_types.push(msg_type.to_string());
+                index_header_ids.push(data.header.header_id);
+                index_timestamps.push(data.header.timestamp);
+                index_versions.push(parse_version(&data.header.version));
+
+                // Add instant actions-specific data
                 ia_row_ids.push(row_id);
-                ia_action_counts.push(record.operating_mode);
+                ia_action_counts.push(Some(data.actions.len() as u32));
             }
-            _ => {}
         }
     }
 
