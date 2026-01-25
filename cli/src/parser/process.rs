@@ -2,55 +2,11 @@
 
 use crate::parser::models::ParsedRecord;
 use anyhow::Result;
-use nom::{
-    IResult, Parser,
-    bytes::complete::{tag, take_while},
-    combinator::map_res,
-};
-use std::str;
+use log_file_parser::mqtt_log_io::{parse_topic, parse_version};
 use vda5050_data_types::{
     connection::Connection, instant_actions::InstantActions, order::Order, state::State,
     visualization::Visualization,
 };
-
-/// A temporary struct to hold the fields parsed from the MQTT topic.
-struct Topic<'a> {
-    manufacturer: &'a str,
-    serial_number: &'a str,
-    msg_type: &'a str,
-}
-
-/// Uses `nom` to parse the VDA 5050 topic prefix from a raw log entry slice.
-fn parse_topic<'a>(input: &'a [u8]) -> IResult<&'a [u8], Topic<'a>> {
-    let not_separator = |c: u8| c != b'/' && c != b' ';
-
-    let (rest, (manufacturer, _, serial_number, _, msg_type, _)) = (
-        map_res(take_while(not_separator), str::from_utf8),
-        tag(&b"/"[..]),
-        map_res(take_while(not_separator), str::from_utf8),
-        tag(&b"/"[..]),
-        map_res(take_while(not_separator), str::from_utf8),
-        tag(&b" "[..]), // The space separating the topic from the JSON payload.
-    )
-        .parse(input)?;
-
-    let topic = Topic {
-        manufacturer,
-        serial_number,
-        msg_type,
-    };
-
-    Ok((rest, topic))
-}
-
-/// Parses a SemVer string (e.g., "2.0.1") into a packed u32 for efficient comparison and storage.
-fn parse_version(version: &str) -> u32 {
-    let mut parts = version.split('.');
-    let major = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
-    let minor = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
-    let patch = parts.next().and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
-    (major as u32) << 24 | (minor as u32) << 16 | (patch as u32)
-}
 
 /// Parses a complete log entry slice (`&[u8]`) into a `ParsedRecord`.
 pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
@@ -157,14 +113,6 @@ pub fn parse_record(input: &[u8]) -> Result<ParsedRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_version() {
-        assert_eq!(parse_version("2.1.0"), (2 << 24) | (1 << 16) | 0);
-        assert_eq!(parse_version("1.0.0"), (1 << 24));
-        assert_eq!(parse_version("0.0.0"), 0);
-        assert_eq!(parse_version("invalid"), 0);
-    }
 
     #[test]
     fn test_parse_record_state() {
