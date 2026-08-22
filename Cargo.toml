@@ -3,6 +3,7 @@ members = [
     "cli",
     "hmi",
     "log-file-parser",
+    "vda5050-analysis",
     "vda5050-data-types",
 ]
 resolver = "3"

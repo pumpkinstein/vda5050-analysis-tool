@@ -5,12 +5,13 @@ use dioxus_free_icons::icons::bs_icons::{BsFileEarmarkText, BsGear, BsSpeedomete
 use log_file_parser::{DEFAULT_ROOT_TOPIC, VdaAnalysisResult};
 use std::path::PathBuf;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+use vda5050_analysis::AnalysisSummary;
 
 mod components;
 mod recent_files;
 use components::{
-    dashboard::DashboardStats, dashboard::DashboardView, open_file::OpenFileView,
-    settings::SettingsView, status_panel::StatusPanel,
+    dashboard::DashboardView, open_file::OpenFileView, settings::SettingsView,
+    status_panel::StatusPanel,
 };
 
 /// Shared state between many components. Uses Dioxus context() mechanism
@@ -19,8 +20,8 @@ pub(crate) struct AppState {
     /// Data frames from parsing log files plus some metadata
     pub(crate) data: Signal<Option<VdaAnalysisResult>>,
     pub(crate) parse_status: Signal<ParseStatus>,
-    /// Avoid recomputing dashboard stats on every remount of dashboard view
-    pub(crate) dashboard_stats: Signal<Option<DashboardStats>>,
+    /// Avoid recomputing the analysis summary on every remount of dashboard view
+    pub(crate) analysis_summary: Signal<Option<AnalysisSummary>>,
 }
 
 /// Implements some helper functions mostly to deal with epic &* syntax
@@ -40,7 +41,7 @@ impl AppState {
     pub fn reset(&mut self) {
         self.data.set(None);
         self.parse_status.set(ParseStatus::Idle);
-        self.dashboard_stats.set(None);
+        self.analysis_summary.set(None);
     }
 }
 

@@ -2,6 +2,7 @@ use crate::{AppState, ParseStatus, recent_files};
 use dioxus::prelude::*;
 use log_file_parser::process_log_file;
 use std::path::{Path, PathBuf};
+use vda5050_analysis::summarize;
 
 #[component]
 pub(crate) fn OpenFileView(
@@ -103,7 +104,9 @@ pub(crate) fn OpenFileView(
 
                             match process_log_file(&path, &root_topic, batch_size, verbose) {
                                 Ok(result) => {
+                                    let summary = summarize(&result);
                                     state.data.set(Some(result));
+                                    state.analysis_summary.set(Some(summary));
                                     state.parse_status.set(ParseStatus::Loaded);
 
                                     let mut paths = recent_file_paths();
