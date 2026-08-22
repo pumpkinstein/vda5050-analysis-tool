@@ -2873,7 +2873,6 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 name = "hmi"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "clap",
  "dioxus",
  "dioxus-free-icons",
@@ -2882,11 +2881,11 @@ dependencies = [
  "gtk",
  "log-file-parser",
  "once_cell",
- "polars",
  "rfd",
  "serde_json",
  "sysinfo",
  "tokio",
+ "vda5050-analysis",
  "vda5050-data-types",
 ]
 
@@ -7379,6 +7378,15 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "vda5050-analysis"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "log-file-parser",
+ "polars",
+]
 
 [[package]]
 name = "vda5050-data-types"

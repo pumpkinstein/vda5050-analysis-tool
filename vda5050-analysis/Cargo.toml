@@ -1,0 +1,9 @@
+[package]
+name = "vda5050-analysis"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { workspace = true }
+log-file-parser = { path = "../log-file-parser" }
+polars = { workspace = true }

@@ -7,12 +7,25 @@ use vda5050_data_types::{
 
 // Fixed message types used by the index Enum column.
 vda5050_data_types::fixed_string_enum! {
-    pub(crate) enum MessageType {
+    pub enum MessageType {
         State => "state",
         Visualization => "visualization",
         Connection => "connection",
         Order => "order",
         InstantActions => "instantActions",
+    }
+}
+
+impl MessageType {
+    /// Returns the key used for this message type's DataFrame.
+    ///
+    /// DataFrame keys use Rust-style snake case, while [`as_str`](Self::as_str)
+    /// returns the VDA 5050 topic value.
+    pub const fn dataframe_name(self) -> &'static str {
+        match self {
+            Self::InstantActions => "instant_actions",
+            _ => self.as_str(),
+        }
     }
 }
 

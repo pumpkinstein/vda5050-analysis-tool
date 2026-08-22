@@ -3,10 +3,12 @@ pub mod io;
 pub mod models;
 pub mod process;
 
+pub use models::MessageType;
+
 use crate::{
     builders::{AllBuilders, DictionaryMappings},
     io::{VdaIterator, parse_version, root_topic_prefix},
-    models::{MessageType, ParsedMessage},
+    models::ParsedMessage,
     process::{ParseBuffers, parse_record_with_buffers},
 };
 use anyhow::Result;
@@ -289,11 +291,20 @@ pub fn process_log_file(
 
     let mut dataframes = HashMap::new();
     dataframes.insert("index".to_string(), index_df);
-    dataframes.insert("state".to_string(), state_df);
-    dataframes.insert("visualization".to_string(), viz_df);
-    dataframes.insert("connection".to_string(), conn_df);
-    dataframes.insert("order".to_string(), order_df);
-    dataframes.insert("instant_actions".to_string(), ia_df);
+    dataframes.insert(MessageType::State.dataframe_name().to_string(), state_df);
+    dataframes.insert(
+        MessageType::Visualization.dataframe_name().to_string(),
+        viz_df,
+    );
+    dataframes.insert(
+        MessageType::Connection.dataframe_name().to_string(),
+        conn_df,
+    );
+    dataframes.insert(MessageType::Order.dataframe_name().to_string(), order_df);
+    dataframes.insert(
+        MessageType::InstantActions.dataframe_name().to_string(),
+        ia_df,
+    );
 
     Ok(VdaAnalysisResult {
         dataframes,
