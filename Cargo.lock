@@ -661,9 +661,8 @@ dependencies = [
  "anyhow",
  "clap",
  "log-file-parser",
- "polars",
  "tikv-jemallocator",
- "vda5050-data-types",
+ "vda5050-analysis",
 ]
 
 [[package]]
