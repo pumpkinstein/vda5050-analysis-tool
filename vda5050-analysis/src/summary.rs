@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use log_file_parser::VdaAnalysisResult;
+use log_file_parser::{MessageType, VdaAnalysisResult};
 use polars::prelude::{ChunkAgg, DataFrame, DataType};
 
 /// Display-independent statistics derived from a parsed VDA 5050 log.
@@ -75,11 +75,11 @@ pub fn summarize(result: &VdaAnalysisResult) -> AnalysisSummary {
         .unwrap_or(0);
 
     let message_counts = MessageCounts {
-        state: dataframe_height(result, "state"),
-        visualization: dataframe_height(result, "visualization"),
-        connection: dataframe_height(result, "connection"),
-        order: dataframe_height(result, "order"),
-        instant_actions: dataframe_height(result, "instant_actions"),
+        state: dataframe_height(result, MessageType::State),
+        visualization: dataframe_height(result, MessageType::Visualization),
+        connection: dataframe_height(result, MessageType::Connection),
+        order: dataframe_height(result, MessageType::Order),
+        instant_actions: dataframe_height(result, MessageType::InstantActions),
     };
 
     let time_range = result
@@ -109,10 +109,10 @@ pub fn summarize(result: &VdaAnalysisResult) -> AnalysisSummary {
     }
 }
 
-fn dataframe_height(result: &VdaAnalysisResult, name: &str) -> usize {
+fn dataframe_height(result: &VdaAnalysisResult, message_type: MessageType) -> usize {
     result
         .dataframes
-        .get(name)
+        .get(message_type.dataframe_name())
         .map(DataFrame::height)
         .unwrap_or(0)
 }

@@ -3,7 +3,7 @@ use clap::Parser;
 use polars::prelude::*;
 use std::{path::PathBuf, time::Instant};
 
-use log_file_parser::{DEFAULT_ROOT_TOPIC, process_log_file};
+use log_file_parser::{DEFAULT_ROOT_TOPIC, MessageType, process_log_file};
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -93,11 +93,26 @@ fn main() -> Result<()> {
     }
 
     let index_df = result.dataframes.get("index").unwrap();
-    let state_df = result.dataframes.get("state").unwrap();
-    let viz_df = result.dataframes.get("visualization").unwrap();
-    let conn_df = result.dataframes.get("connection").unwrap();
-    let order_df = result.dataframes.get("order").unwrap();
-    let ia_df = result.dataframes.get("instant_actions").unwrap();
+    let state_df = result
+        .dataframes
+        .get(MessageType::State.dataframe_name())
+        .unwrap();
+    let viz_df = result
+        .dataframes
+        .get(MessageType::Visualization.dataframe_name())
+        .unwrap();
+    let conn_df = result
+        .dataframes
+        .get(MessageType::Connection.dataframe_name())
+        .unwrap();
+    let order_df = result
+        .dataframes
+        .get(MessageType::Order.dataframe_name())
+        .unwrap();
+    let ia_df = result
+        .dataframes
+        .get(MessageType::InstantActions.dataframe_name())
+        .unwrap();
 
     // 5. Display results
     println!("\n=== Index DataFrame ===");
