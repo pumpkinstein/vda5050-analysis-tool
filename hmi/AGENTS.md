@@ -1,20 +1,18 @@
-You are an expert [0.7 Dioxus](https://dioxuslabs.com/learn/0.7) assistant. Dioxus 0.7 changes every api in dioxus. Only use this up to date documentation. `cx`, `Scope`, and `use_state` are gone
+You are an expert [0.7 Dioxus](https://dioxuslabs.com/learn/0.7) assistant. Dioxus 0.7 changes every api in dioxus. Only use this up to date documentation. `cx`, `Scope`, and `use_state` are gone.
 
-Provide concise code examples with detailed descriptions
+Provide concise code examples with detailed descriptions.
+
+# Core API Rules
+- **Non-blocking Execution:** Never perform blocking file I/O or intensive computation on the main thread; offload heavy tasks to async channels or background worker threads (`rayon`/`tokio`).
+- **Non-blocking UI:** Keep event handlers instant. Never compute, parse, or perform I/O in handlers or render blocks—offload to `spawn(...)` or `use_resource`.
 
 # Dioxus Dependency
 
-You can add Dioxus to your `Cargo.toml` like this:
+This is a desktop-only application. Add Dioxus with the `desktop` feature (and `router` for navigation):
 
 ```toml
 [dependencies]
-dioxus = { version = "0.7.1" }
-
-[features]
-default = ["web", "webview", "server"]
-web = ["dioxus/web"]
-webview = ["dioxus/desktop"]
-server = ["dioxus/server"]
+dioxus = { version = "0.7.1", features = ["desktop", "router"] }
 ```
 
 # Launching your application
@@ -34,12 +32,7 @@ fn App() -> Element {
 }
 ```
 
-Then serve with `dx serve`:
-
-```sh
-curl -sSL http://dioxus.dev/install.sh | sh
-dx serve
-```
+Run with `dx serve` for hot-reload during development.
 
 # UI with RSX
 
@@ -79,7 +72,7 @@ rsx! {
 
 ## Styles
 
-The `document::Stylesheet` component will inject the stylesheet into the `<head>` of the document
+The `document::Stylesheet` component will inject the stylesheet into the `<head>` of the document.
 
 ```rust
 rsx! {
@@ -91,9 +84,9 @@ rsx! {
 
 # Components
 
-Components are the building blocks of apps
+Components are the building blocks of apps.
 
-* Component are functions annotated with the `#[component]` macro.
+* Components are functions annotated with the `#[component]` macro.
 * The function name must start with a capital letter or contain an underscore.
 * A component re-renders only under two conditions:
 	1.  Its props change (as determined by `PartialEq`).
@@ -104,7 +97,7 @@ Components are the building blocks of apps
 fn Input(mut value: Signal<String>) -> Element {
 	rsx! {
 		input {
-            value,
+			value,
 			oninput: move |e| {
 				*value.write() = e.value();
 			},
@@ -118,7 +111,7 @@ fn Input(mut value: Signal<String>) -> Element {
 }
 ```
 
-Each component accepts function arguments (props)
+Each component accepts function arguments (props):
 
 * Props must be owned values, not references. Use `String` and `Vec<T>` instead of `&str` or `&[T]`.
 * Props must implement `PartialEq` and `Clone`.
@@ -157,7 +150,7 @@ fn Counter() -> Element {
 
 ## Context API
 
-The Context API allows you to share state down the component tree. A parent provides the state using `use_context_provider`, and any child can access it with `use_context`
+The Context API allows you to share state down the component tree. A parent provides the state using `use_context_provider`, and any child can access it with `use_context`.
 
 ```rust
 #[component]
@@ -182,7 +175,7 @@ fn Child() -> Element {
 
 For state that depends on an asynchronous operation (like a network request), Dioxus provides a hook called `use_resource`. This hook manages the lifecycle of the async task and provides the result to your component.
 
-* The `use_resource` hook takes an `async` closure. It re-runs this closure whenever any signals it depends on (reads) are updated
+* The `use_resource` hook takes an `async` closure. It re-runs this closure whenever any signals it depends on (reads) are updated.
 * The `Resource` object returned can be in several states when read:
 1. `None` if the resource is still loading
 2. `Some(value)` if the resource has successfully loaded
@@ -200,11 +193,11 @@ match dog() {
 
 # Routing
 
-All possible routes are defined in a single Rust `enum` that derives `Routable`. Each variant represents a route and is annotated with `#[route("/path")]`. Dynamic Segments can capture parts of the URL path as parameters by using `:name` in the route string. These become fields in the enum variant.
+All possible routes are defined in a single Rust `enum` that derives `Routable`. Each variant represents a route and is annotated with `#[route("/path")]`. Dynamic segments can capture parts of the URL path as parameters by using `:name` in the route string. These become fields in the enum variant.
 
-The `Router<Route> {}` component is the entry point that manages rendering the correct component for the current URL.
+The `Router<Route> {}` component is the entry point that manages rendering the correct component for the current route.
 
-You can use the `#[layout(NavBar)]` to create a layout shared between pages and place an `Outlet<Route> {}` inside your layout component. The child routes will be rendered in the outlet.
+You can use `#[layout(NavBar)]` to create a layout shared between pages and place an `Outlet<Route> {}` inside your layout component. The child routes will be rendered in the outlet.
 
 ```rust
 #[derive(Routable, Clone, PartialEq)]
@@ -229,37 +222,3 @@ fn App() -> Element {
 	rsx! { Router::<Route> {} }
 }
 ```
-
-```toml
-dioxus = { version = "0.7.1", features = ["router"] }
-```
-
-# Fullstack
-
-Fullstack enables server rendering and ipc calls. It uses Cargo features (`server` and a client feature like `web`) to split the code into a server and client binaries.
-
-```toml
-dioxus = { version = "0.7.1", features = ["fullstack"] }
-```
-
-## Server Functions
-
-Use the `#[post]` / `#[get]` macros to define an `async` function that will only run on the server. On the server, this macro generates an API endpoint. On the client, it generates a function that makes an HTTP request to that endpoint.
-
-```rust
-#[post("/api/double/:path/&query")]
-async fn double_server(number: i32, path: String, query: i32) -> Result<i32, ServerFnError> {
-	tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-	Ok(number * 2)
-}
-```
-
-## Hydration
-
-Hydration is the process of making a server-rendered HTML page interactive on the client. The server sends the initial HTML, and then the client-side runs, attaches event listeners, and takes control of future rendering.
-
-### Errors
-The initial UI rendered by the component on the client must be identical to the UI rendered on the server.
-
-* Use the `use_server_future` hook instead of `use_resource`. It runs the future on the server, serializes the result, and sends it to the client, ensuring the client has the data immediately for its first render.
-* Any code that relies on browser-specific APIs (like accessing `localStorage`) must be run *after* hydration. Place this code inside a `use_effect` hook.
