@@ -11,7 +11,7 @@ vda5050-data-types = { path = "../vda5050-data-types"}
 log-file-parser = { path = "../log-file-parser"}
 vda5050-analysis = { path = "../vda5050-analysis" }
 
-dioxus = { version = "0.7.10", features = ["router"] }
+dioxus = { version = "0.7.10", features = ["desktop", "router"] }
 dioxus-free-icons = { version = "0.10.0", features = ["bootstrap"] }
 once_cell = "1.21.0"
 rfd = "0.17.2"
@@ -27,6 +27,4 @@ gtk = "0.18.2"
 
 [features]
 default = ["desktop"]
-web = ["dioxus/web"]
 desktop = ["dioxus/desktop"]
-mobile = ["dioxus/mobile"]
