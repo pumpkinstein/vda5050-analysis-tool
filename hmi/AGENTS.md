@@ -12,7 +12,7 @@ This is a desktop-only application. Add Dioxus with the `desktop` feature (and `
 
 ```toml
 [dependencies]
-dioxus = { version = "0.7.1", features = ["desktop", "router"] }
+dioxus = { version = "0.7.10", features = ["desktop", "router"] }
 ```
 
 # Launching your application
