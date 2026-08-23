@@ -8,10 +8,15 @@
 //! `timestamp`, `manufacturer`, `serial_number`, and `msg_type` provide the
 //! shared filtering context for future Polars-native queries.
 
+mod queries;
 mod robots;
+mod statistics;
 mod summary;
 
+pub use queries::visualization_context_sample;
 pub use robots::{RobotIdentity, unique_robot_identities};
-pub use summary::{
-    AnalysisSnapshot, AnalysisSummary, FailureCount, MessageCounts, TimeRange, analyze, summarize,
+pub use statistics::{
+    CanonicalFrameCounts, FailureCount, MessageCounts, RecordCounts, canonical_frame_counts,
+    failure_breakdown, message_type_distribution, record_counts,
 };
+pub use summary::{AnalysisSnapshot, AnalysisSummary, TimeRange, analyze, summarize};

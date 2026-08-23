@@ -7,11 +7,10 @@ edition = "2024"
 jemalloc = ["dep:tikv-jemallocator"]
 
 [dependencies]
-vda5050-data-types = { path = "../vda5050-data-types"}
 log-file-parser = { path = "../log-file-parser"}
+vda5050-analysis = { path = "../vda5050-analysis" }
 
 # Data Analysis
 anyhow = { workspace = true }
 clap = { version = "4.5.54", features = ["derive"] }
-polars = { workspace = true }
 tikv-jemallocator = { workspace = true, optional = true }

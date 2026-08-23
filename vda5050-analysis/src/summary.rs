@@ -1,9 +1,12 @@
 use chrono::{DateTime, Duration, Utc};
-use log_file_parser::{MessageType, VdaAnalysisResult};
+use log_file_parser::VdaAnalysisResult;
 use polars::prelude::{ChunkAgg, DataFrame, DataType};
 
 use crate::robots::{
     RobotIdentity, count_unique_robot_identities_from_index, unique_robot_identities,
+};
+use crate::statistics::{
+    FailureCount, MessageCounts, canonical_frame_counts, failure_breakdown, record_counts,
 };
 
 /// Display-independent statistics derived from a parsed VDA 5050 log.
@@ -31,29 +34,12 @@ pub struct AnalysisSummary {
     pub failure_breakdown: Vec<FailureCount>,
 }
 
-/// Counts of successfully parsed messages by VDA 5050 message type.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct MessageCounts {
-    pub state: usize,
-    pub visualization: usize,
-    pub connection: usize,
-    pub order: usize,
-    pub instant_actions: usize,
-}
-
 /// Observed UTC timestamp range in the canonical `index` DataFrame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimeRange {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
     pub duration: Duration,
-}
-
-/// Number of parser failures for one message type.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FailureCount {
-    pub message_type: String,
-    pub count: usize,
 }
 
 /// Summary values and distinct robot identities derived from one analysis
@@ -96,21 +82,14 @@ fn summarize_with_unique_robot_count(
     result: &VdaAnalysisResult,
     unique_robots: usize,
 ) -> AnalysisSummary {
-    let total_records = result.total_chunks;
-    let parsed_records = result.num_parsed;
-    let parse_failures = result.parse_failures.values().sum();
-    let parse_success_rate = if total_records > 0 {
-        (parsed_records as f64 / total_records as f64) * 100.0
+    let record_counts = record_counts(result);
+    let frame_counts = canonical_frame_counts(result);
+    let failure_breakdown = failure_breakdown(result);
+    let parse_failures = failure_breakdown.iter().map(|failure| failure.count).sum();
+    let parse_success_rate = if record_counts.total_records > 0 {
+        (record_counts.parsed_records as f64 / record_counts.total_records as f64) * 100.0
     } else {
         0.0
-    };
-
-    let message_counts = MessageCounts {
-        state: dataframe_height(result, MessageType::State),
-        visualization: dataframe_height(result, MessageType::Visualization),
-        connection: dataframe_height(result, MessageType::Connection),
-        order: dataframe_height(result, MessageType::Order),
-        instant_actions: dataframe_height(result, MessageType::InstantActions),
     };
 
     let time_range = result
@@ -118,34 +97,16 @@ fn summarize_with_unique_robot_count(
         .get("index")
         .and_then(calculate_time_range);
 
-    let mut failure_breakdown: Vec<_> = result
-        .parse_failures
-        .iter()
-        .map(|(message_type, count)| FailureCount {
-            message_type: message_type.clone(),
-            count: *count,
-        })
-        .collect();
-    failure_breakdown.sort_by_key(|failure| std::cmp::Reverse(failure.count));
-
     AnalysisSummary {
-        total_records,
-        parsed_records,
+        total_records: record_counts.total_records,
+        parsed_records: record_counts.parsed_records,
         parse_failures,
         parse_success_rate,
         unique_robots,
-        message_counts,
+        message_counts: frame_counts.messages,
         time_range,
         failure_breakdown,
     }
-}
-
-fn dataframe_height(result: &VdaAnalysisResult, message_type: MessageType) -> usize {
-    result
-        .dataframes
-        .get(message_type.dataframe_name())
-        .map(DataFrame::height)
-        .unwrap_or(0)
 }
 
 fn calculate_time_range(df: &DataFrame) -> Option<TimeRange> {
