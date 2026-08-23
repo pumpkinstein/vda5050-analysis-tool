@@ -2,6 +2,10 @@ use chrono::{DateTime, Duration, Utc};
 use log_file_parser::{MessageType, VdaAnalysisResult};
 use polars::prelude::{ChunkAgg, DataFrame, DataType};
 
+use crate::robots::{
+    RobotIdentity, count_unique_robot_identities_from_index, unique_robot_identities,
+};
+
 /// Display-independent statistics derived from a parsed VDA 5050 log.
 ///
 /// The summary is intentionally a derived view. The complete
@@ -52,6 +56,27 @@ pub struct FailureCount {
     pub count: usize,
 }
 
+/// Summary values and distinct robot identities derived from one analysis
+/// result.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnalysisSnapshot {
+    /// Aggregate values for the dashboard.
+    pub summary: AnalysisSummary,
+    /// Distinct robot identities for the robots view.
+    pub robot_identities: Vec<RobotIdentity>,
+}
+
+/// Derive the dashboard summary and robot identities in one analysis pass.
+pub fn analyze(result: &VdaAnalysisResult) -> AnalysisSnapshot {
+    let robot_identities = unique_robot_identities(result);
+    let summary = summarize_with_unique_robot_count(result, robot_identities.len());
+
+    AnalysisSnapshot {
+        summary,
+        robot_identities,
+    }
+}
+
 /// Derive the first-slice analysis summary from a parser result.
 ///
 /// This function is infallible by design. Missing message frames and missing
@@ -59,6 +84,18 @@ pub struct FailureCount {
 /// unusable `timestamp` column produces no time range. Timestamps are read as
 /// nanoseconds, matching the parser's canonical `index` schema.
 pub fn summarize(result: &VdaAnalysisResult) -> AnalysisSummary {
+    let unique_robots = result
+        .dataframes
+        .get("index")
+        .map(count_unique_robot_identities_from_index)
+        .unwrap_or(0);
+    summarize_with_unique_robot_count(result, unique_robots)
+}
+
+fn summarize_with_unique_robot_count(
+    result: &VdaAnalysisResult,
+    unique_robots: usize,
+) -> AnalysisSummary {
     let total_records = result.total_chunks;
     let parsed_records = result.num_parsed;
     let parse_failures = result.parse_failures.values().sum();
@@ -67,12 +104,6 @@ pub fn summarize(result: &VdaAnalysisResult) -> AnalysisSummary {
     } else {
         0.0
     };
-
-    let unique_robots = result
-        .dataframes
-        .get("index")
-        .map(count_unique_robots)
-        .unwrap_or(0);
 
     let message_counts = MessageCounts {
         state: dataframe_height(result, MessageType::State),
@@ -95,7 +126,7 @@ pub fn summarize(result: &VdaAnalysisResult) -> AnalysisSummary {
             count: *count,
         })
         .collect();
-    failure_breakdown.sort_by(|a, b| b.count.cmp(&a.count));
+    failure_breakdown.sort_by_key(|failure| std::cmp::Reverse(failure.count));
 
     AnalysisSummary {
         total_records,
@@ -115,29 +146,6 @@ fn dataframe_height(result: &VdaAnalysisResult, message_type: MessageType) -> us
         .get(message_type.dataframe_name())
         .map(DataFrame::height)
         .unwrap_or(0)
-}
-
-fn count_unique_robots(df: &DataFrame) -> usize {
-    // Count unique combinations of manufacturer and serial_number, retaining
-    // the parser's tolerant behavior when either column is unavailable.
-    if let (Ok(_manufacturer_col), Ok(_serial_col)) =
-        (df.column("manufacturer"), df.column("serial_number"))
-    {
-        df.select(["manufacturer", "serial_number"])
-            .ok()
-            .and_then(|df| {
-                df.unique_stable(
-                    None,
-                    polars::prelude::UniqueKeepStrategy::First,
-                    None::<(i64, usize)>,
-                )
-                .ok()
-            })
-            .map(|df| df.height())
-            .unwrap_or(0)
-    } else {
-        0
-    }
 }
 
 fn calculate_time_range(df: &DataFrame) -> Option<TimeRange> {
@@ -209,9 +217,10 @@ mod tests {
 
     #[test]
     fn summarize_empty_input_returns_default_values() {
-        let summary = summarize(&result(HashMap::new(), 0, 0, HashMap::new()));
+        let analysis = analyze(&result(HashMap::new(), 0, 0, HashMap::new()));
 
-        assert_eq!(summary, AnalysisSummary::default());
+        assert_eq!(analysis.summary, AnalysisSummary::default());
+        assert!(analysis.robot_identities.is_empty());
     }
 
     #[test]
@@ -241,13 +250,17 @@ mod tests {
         failures.insert("state".to_string(), 3);
         failures.insert("connection".to_string(), 2);
 
-        let summary = summarize(&result(dataframes, 5, 4, failures));
+        let analysis_result = result(dataframes, 5, 4, failures);
+        let summary = summarize(&analysis_result);
+        let analysis = analyze(&analysis_result);
 
         assert_eq!(summary.total_records, 5);
         assert_eq!(summary.parsed_records, 4);
         assert_eq!(summary.parse_failures, 6);
         assert_eq!(summary.parse_success_rate, 80.0);
         assert_eq!(summary.unique_robots, 3);
+        assert_eq!(analysis.summary, summary);
+        assert_eq!(analysis.robot_identities.len(), summary.unique_robots);
         assert_eq!(
             summary.message_counts,
             MessageCounts {

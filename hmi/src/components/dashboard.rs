@@ -1,6 +1,5 @@
-use crate::AppState;
 use dioxus::prelude::*;
-use vda5050_analysis::TimeRange;
+use vda5050_analysis::{AnalysisSnapshot, TimeRange};
 
 /// Format numbers with thousands separators for readability
 fn format_number(n: usize) -> String {
@@ -19,24 +18,19 @@ fn format_number(n: usize) -> String {
 }
 
 #[component]
-pub(crate) fn DashboardView() -> Element {
-    let state = use_context::<AppState>();
+pub(crate) fn DashboardView(analysis: Signal<Option<AnalysisSnapshot>>) -> Element {
+    let snapshot = analysis.read();
 
-    // Get the data or return early if none
-    let _ = match &*state.data.read() {
-        Some(d) => d,
-        None => {
-            return rsx! {
-                div { class: "view-container",
-                    h1 { "Dashboard" }
-                    p { "No data loaded. Please open a file first." }
-                }
-            };
-        }
+    let Some(snapshot) = snapshot.as_ref() else {
+        return rsx! {
+            div { class: "view-container",
+                h1 { "Dashboard" }
+                p { "No data loaded. Please open a file first." }
+            }
+        };
     };
 
-    let summary = state.analysis_summary.read();
-    let s = summary.as_ref().expect("analysis_summary not initialized");
+    let s = &snapshot.summary;
 
     rsx! {
         div { class: "view-container",

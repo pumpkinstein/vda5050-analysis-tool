@@ -1,16 +1,16 @@
 use clap::Parser;
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
-use dioxus_free_icons::icons::bs_icons::{BsFileEarmarkText, BsGear, BsSpeedometer2};
+use dioxus_free_icons::icons::bs_icons::{BsFileEarmarkText, BsGear, BsRobot, BsSpeedometer2};
 use log_file_parser::{DEFAULT_ROOT_TOPIC, VdaAnalysisResult};
 use std::path::PathBuf;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
-use vda5050_analysis::AnalysisSummary;
+use vda5050_analysis::AnalysisSnapshot;
 
 mod components;
 mod recent_files;
 use components::{
-    dashboard::DashboardView, open_file::OpenFileView, settings::SettingsView,
+    dashboard::DashboardView, open_file::OpenFileView, robots::RobotsView, settings::SettingsView,
     status_panel::StatusPanel,
 };
 
@@ -20,8 +20,8 @@ pub(crate) struct AppState {
     /// Data frames from parsing log files plus some metadata
     pub(crate) data: Signal<Option<VdaAnalysisResult>>,
     pub(crate) parse_status: Signal<ParseStatus>,
-    /// Avoid recomputing the analysis summary on every remount of dashboard view
-    pub(crate) analysis_summary: Signal<Option<AnalysisSummary>>,
+    /// Shared dashboard and robots analysis derived when a file is loaded
+    pub(crate) analysis: Signal<Option<AnalysisSnapshot>>,
 }
 
 /// Implements some helper functions mostly to deal with epic &* syntax
@@ -41,7 +41,7 @@ impl AppState {
     pub fn reset(&mut self) {
         self.data.set(None);
         self.parse_status.set(ParseStatus::Idle);
-        self.analysis_summary.set(None);
+        self.analysis.set(None);
     }
 }
 
@@ -49,6 +49,7 @@ impl AppState {
 enum View {
     OpenFile,
     Dashboard,
+    Robots,
     Settings,
 }
 
@@ -197,6 +198,7 @@ fn App() -> Element {
     let mut current_view = use_signal(|| View::OpenFile);
     let font_size = use_signal(|| 14);
     let icon_size = use_signal(|| 24);
+    let strict_robot_ordering = use_signal(|| false);
     let root_topic = use_signal(move || initial_root_topic);
     let log_file_path = use_signal(move || initial_file_path);
     let file_size = use_signal(move || initial_file_size);
@@ -205,6 +207,9 @@ fn App() -> Element {
 
     // Initialize global state at root
     let app_state = use_context_provider(|| AppState::default());
+
+    // Share the load-time analysis between the dashboard and robots views.
+    let analysis = app_state.analysis;
 
     // Check if data is loaded
     let data_loaded =
@@ -266,6 +271,17 @@ fn App() -> Element {
                         }
                         span { "Dashboard" }
                     }
+
+                    button {
+                        class: if current_view() == View::Robots { "sidebar-btn active" } else { "sidebar-btn" },
+                        onclick: move |_| current_view.set(View::Robots),
+                        Icon {
+                            icon: BsRobot,
+                            width: icon_size(),
+                            height: icon_size(),
+                        }
+                        span { "Robots" }
+                    }
                 }
 
                 // Spacer pushes everything below to the bottom
@@ -300,12 +316,19 @@ fn App() -> Element {
                             }
                         },
                         View::Dashboard => rsx! {
-                            DashboardView {}
+                            DashboardView { analysis }
+                        },
+                        View::Robots => rsx! {
+                            RobotsView {
+                                analysis,
+                                strict_robot_ordering,
+                            }
                         },
                         View::Settings => rsx! {
                             SettingsView {
                                 font_size,
-                                icon_size
+                                icon_size,
+                                strict_robot_ordering,
                             }
                         },
                     }
