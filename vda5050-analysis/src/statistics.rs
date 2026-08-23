@@ -1,5 +1,6 @@
 use log_file_parser::{MessageType, VdaAnalysisResult};
 use polars::prelude::{DataFrame, PolarsResult, SeriesMethods};
+use std::collections::BTreeMap;
 
 /// Counts of records discovered and parsed by the log parser.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -98,6 +99,30 @@ pub fn message_type_distribution(index: &DataFrame) -> PolarsResult<DataFrame> {
     msg_type_col
         .as_materialized_series()
         .value_counts(true, false, "count".into(), false)
+}
+
+/// Count message types into a deterministic ordered map.
+///
+/// This reuses [`message_type_distribution`] and converts its display-oriented
+/// DataFrame into the stable scalar representation used by correctness
+/// manifests.
+pub fn message_type_distribution_counts(
+    index: &DataFrame,
+) -> PolarsResult<BTreeMap<String, usize>> {
+    let distribution = message_type_distribution(index)?;
+    let message_types = distribution.column("msg_type")?;
+    let counts = distribution.column("count")?.u32()?;
+    // Keep manifest serialization and comparisons deterministic by sorting
+    // message types instead of relying on an iteration order that can vary.
+    let mut values = BTreeMap::new();
+
+    for row in 0..distribution.height() {
+        let message_type = message_types.get(row)?.str_value().into_owned();
+        let count = counts.get(row).unwrap_or(0) as usize;
+        values.insert(message_type, count);
+    }
+
+    Ok(values)
 }
 
 fn dataframe_height(result: &VdaAnalysisResult, name: &str) -> usize {

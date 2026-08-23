@@ -2,8 +2,10 @@ pub mod builders;
 pub mod io;
 pub mod models;
 pub mod process;
+pub mod validation;
 
 pub use models::MessageType;
+pub use validation::{CANONICAL_FRAME_NAMES, ValidationErrors, validate_result};
 
 use crate::{
     builders::{AllBuilders, DictionaryMappings},
@@ -75,7 +77,7 @@ pub fn process_log_file(
     let dictionary_mappings = DictionaryMappings::new()?;
 
     // Split work into batches for parallel processing
-    let num_batches = (total_chunks + batch_size - 1) / batch_size;
+    let num_batches = total_chunks.div_ceil(batch_size);
 
     // Parse records and append them to per-batch builders in parallel.
     let parsing_start = Instant::now();

@@ -12,18 +12,10 @@ use vda5050_data_types::{
 ///
 /// The parsed VDA objects own their deserialized strings and values, so both
 /// buffers can be reused after `parse_record_with_buffers` returns.
+#[derive(Default)]
 pub(crate) struct ParseBuffers {
     json: Vec<u8>,
     simd: simd_json::Buffers,
-}
-
-impl Default for ParseBuffers {
-    fn default() -> Self {
-        Self {
-            json: Vec::new(),
-            simd: simd_json::Buffers::default(),
-        }
-    }
 }
 
 /// Parses a complete log entry slice (`&[u8]`) into a `ParsedMessage`.

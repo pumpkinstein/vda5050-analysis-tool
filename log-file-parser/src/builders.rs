@@ -154,6 +154,7 @@ impl IndexBuilders {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn append(
         &mut self,
         row_id: u64,

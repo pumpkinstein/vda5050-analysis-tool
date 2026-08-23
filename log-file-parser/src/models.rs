@@ -38,6 +38,7 @@ pub(crate) struct TopicMetadata {
 
 /// A parsed VDA 5050 message with topic metadata
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum ParsedMessage {
     State {
         topic: TopicMetadata,
