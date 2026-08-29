@@ -138,8 +138,8 @@ fn parse_common_utc_timestamp(value: &str) -> Option<i64> {
         microsecond *= 10;
     }
 
-    chrono::NaiveDate::from_ymd_opt(year as i32, month as u32, day as u32)?
-        .and_hms_micro_opt(hour as u32, minute as u32, second as u32, microsecond)
+    chrono::NaiveDate::from_ymd_opt(year as i32, month, day)?
+        .and_hms_micro_opt(hour, minute, second, microsecond)
         .map(|datetime| datetime.and_utc().timestamp_micros())
 }
 

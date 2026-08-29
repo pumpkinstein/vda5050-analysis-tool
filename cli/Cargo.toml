@@ -13,4 +13,18 @@ vda5050-analysis = { path = "../vda5050-analysis" }
 # Data Analysis
 anyhow = { workspace = true }
 clap = { version = "4.5.54", features = ["derive"] }
+serde = { workspace = true }
+sha2 = "0.10"
 tikv-jemallocator = { workspace = true, optional = true }
+yaml_serde = "0.10"
+
+[dev-dependencies]
+# Criterion supplies the stable custom cargo-bench harness, statistical
+# sampling, throughput, and named local baseline comparison used below.
+criterion = "0.8.2"
+# Report the actual Rayon pool size used by log-file-parser during preflight.
+rayon = { workspace = true }
+
+[[bench]]
+name = "pipeline"
+harness = false

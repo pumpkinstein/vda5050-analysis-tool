@@ -1,3 +1,4 @@
+use crate::VISUALIZATION_CONTEXT_SAMPLE_LIMIT;
 use anyhow::{Context, Result};
 use log_file_parser::{MessageType, VdaAnalysisResult};
 use std::{io::Write, time::Duration};
@@ -6,7 +7,7 @@ use vda5050_analysis::{
     visualization_context_sample,
 };
 
-pub(crate) fn write_report<W: Write>(
+pub fn write_report<W: Write>(
     writer: &mut W,
     result: &VdaAnalysisResult,
     verbose: bool,
@@ -144,7 +145,8 @@ pub(crate) fn write_report<W: Write>(
     )?;
 
     if frame_counts.messages.visualization > 0 {
-        let sample = visualization_context_sample(index_df, viz_df, 3)?;
+        let sample =
+            visualization_context_sample(index_df, viz_df, VISUALIZATION_CONTEXT_SAMPLE_LIMIT)?;
         writeln!(
             writer,
             "Sample of joined data (manufacturer + timestamp + position):"
@@ -164,13 +166,14 @@ pub(crate) fn write_report<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DEFAULT_BATCH_SIZE;
     use log_file_parser::{DEFAULT_ROOT_TOPIC, process_log_file};
     use std::{path::Path, time::Duration};
 
     fn sample_result() -> Result<VdaAnalysisResult> {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../log-file-parser/test-data/sample.log");
-        Ok(process_log_file(&path, DEFAULT_ROOT_TOPIC, 4_000, true)?)
+        process_log_file(&path, DEFAULT_ROOT_TOPIC, DEFAULT_BATCH_SIZE, true)
     }
 
     #[test]

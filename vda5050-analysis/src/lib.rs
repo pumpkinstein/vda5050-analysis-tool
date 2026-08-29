@@ -17,6 +17,6 @@ pub use queries::visualization_context_sample;
 pub use robots::{RobotIdentity, unique_robot_identities};
 pub use statistics::{
     CanonicalFrameCounts, FailureCount, MessageCounts, RecordCounts, canonical_frame_counts,
-    failure_breakdown, message_type_distribution, record_counts,
+    failure_breakdown, message_type_distribution, message_type_distribution_counts, record_counts,
 };
 pub use summary::{AnalysisSnapshot, AnalysisSummary, TimeRange, analyze, summarize};

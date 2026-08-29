@@ -26,3 +26,5 @@ target
 
 # Example MQTT log files too big to commit to github
 /log-file-parser/test-data/*
+!/log-file-parser/test-data/sample.vda5050-expected.yaml
+!/log-file-parser/test-data/sample.log
